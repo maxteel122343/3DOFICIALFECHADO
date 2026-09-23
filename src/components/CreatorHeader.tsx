@@ -12,6 +12,7 @@ import {
   Lock,
   Unlock,
   LogOut,
+  Gamepad2,
 } from 'lucide-react';
 import { RoomEditorState, CreatorUser } from '../types';
 
@@ -22,6 +23,7 @@ interface CreatorHeaderProps {
   onAddNewRoom: () => void;
   onOpenBoundaryModal: () => void;
   onPublishRoom: () => void;
+  onPlaytestRoom?: () => void;
   onOpenAuthModal: () => void;
   user: CreatorUser | null;
   isAvatarMode: boolean;
@@ -42,6 +44,7 @@ export const CreatorHeader: React.FC<CreatorHeaderProps> = ({
   onAddNewRoom,
   onOpenBoundaryModal,
   onPublishRoom,
+  onPlaytestRoom,
   onOpenAuthModal,
   user,
   isAvatarMode,
@@ -215,6 +218,20 @@ export const CreatorHeader: React.FC<CreatorHeaderProps> = ({
           <span className="text-xs">👤</span>
           <span className="hidden sm:inline">{user?.displayName || 'Luzenne'}</span>
         </button>
+
+        {/* Botão TESTAR ROOM INTERATIVA (modo teste sem publicar na vitrine) */}
+        {onPlaytestRoom && (
+          <button
+            type="button"
+            onClick={onPlaytestRoom}
+            className="px-3 py-1 rounded border border-emerald-500/70 hover:border-emerald-400 bg-emerald-950/50 hover:bg-emerald-900/70 text-xs font-semibold text-emerald-300 hover:text-white transition-all flex items-center gap-1.5 cursor-pointer shadow-[0_0_12px_rgba(16,185,129,0.25)]"
+            title="Testar a room interativamente em tempo real sem publicar na vitrine"
+          >
+            <Gamepad2 className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
+            <span className="hidden sm:inline">Testar Room</span>
+            <span className="sm:hidden">Testar</span>
+          </button>
+        )}
 
         {/* PUBLICAR NA VITRINE matching user screenshot */}
         <button

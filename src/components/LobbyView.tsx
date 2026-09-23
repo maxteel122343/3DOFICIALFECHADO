@@ -10,8 +10,10 @@ import {
   Sparkles,
   UploadCloud,
   Box,
+  User,
+  Shirt,
 } from 'lucide-react';
-import { RoomData } from '../types';
+import { RoomData, CreatorUser } from '../types';
 
 interface LobbyViewProps {
   rooms: RoomData[];
@@ -22,6 +24,9 @@ interface LobbyViewProps {
   onOpenShop: () => void;
   onOpenFriends: () => void;
   onOpenEditor?: () => void;
+  user?: CreatorUser | null;
+  onOpenAuthModal?: () => void;
+  onOpenCustomization?: () => void;
 }
 
 export const LobbyView: React.FC<LobbyViewProps> = ({
@@ -33,6 +38,9 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
   onOpenShop,
   onOpenFriends,
   onOpenEditor,
+  user,
+  onOpenAuthModal,
+  onOpenCustomization,
 }) => {
   const activeRoom = rooms[selectedRoomIndex] || rooms[1];
 
@@ -69,17 +77,21 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
       </div>
 
       {/* TOP HUD matching Reference 2:
-          Profile (Luzenne, Nv. 12, Level Bar) on left | Gold Coins, Gems, Menu on right */}
+          Profile (Luzenne, Nv. 12, Level Bar) on left | Gold Coins, Gems, Login, Modo Criador on right */}
       <header className="relative z-30 flex items-center justify-between px-8 pt-6 pointer-events-auto">
-        {/* Profile Card */}
-        <div className="flex items-center gap-3">
+        {/* Profile Card - clickable to open Auth/Profile */}
+        <div
+          onClick={onOpenAuthModal}
+          className="flex items-center gap-3 cursor-pointer group"
+          title="Minha Conta / Login / Cadastrar"
+        >
           {/* Avatar with Gold Ring */}
           <div className="relative">
-            <div className="w-14 h-14 rounded-full bg-zinc-900 ring-2 ring-[#ffd700] ring-offset-2 ring-offset-black overflow-hidden shadow-[0_0_15px_rgba(255,215,0,0.3)]">
+            <div className="w-14 h-14 rounded-full bg-zinc-900 ring-2 ring-[#ffd700] ring-offset-2 ring-offset-black overflow-hidden shadow-[0_0_15px_rgba(255,215,0,0.3)] group-hover:ring-amber-300 transition-all">
               <img
                 src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&q=80"
                 alt="Luzenne"
-                className="w-full h-full object-cover filter contrast-125 brightness-90"
+                className="w-full h-full object-cover filter contrast-125 brightness-90 group-hover:scale-105 transition-transform"
                 referrerPolicy="no-referrer"
               />
             </div>
@@ -90,8 +102,8 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
           {/* Name, Level and Progress Bar */}
           <div className="flex flex-col">
             <div className="flex items-baseline gap-2">
-              <span className="text-base font-bold text-zinc-100 tracking-wide">
-                Luzenne
+              <span className="text-base font-bold text-zinc-100 tracking-wide group-hover:text-[#ffd700] transition-colors">
+                {user && !user.isGuest ? user.displayName : 'Luzenne'}
               </span>
               <span className="text-xs text-amber-400 font-semibold">
                 Nv. 12
@@ -112,8 +124,8 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
           </div>
         </div>
 
-        {/* Currency & Menu HUD */}
-        <div className="flex items-center gap-5">
+        {/* Currency & Menu HUD with Login / Cadastro & Loja */}
+        <div className="flex items-center gap-3">
           {/* Gold Coin */}
           <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/40 border border-amber-500/20 backdrop-blur-md">
             <div className="w-4 h-4 rounded-full bg-amber-400 flex items-center justify-center text-[10px] text-black font-black shadow-[0_0_8px_#f59e0b]">
@@ -128,6 +140,45 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
             <span className="text-xs font-bold text-purple-200">180</span>
           </div>
 
+          {/* BOTÃO LOJA & PERSONALIZAR AVATAR (DESTAQUE NO TOPO DA VITRINE) */}
+          <button
+            id="lobby-customization-btn"
+            type="button"
+            onClick={() => {
+              if (onOpenCustomization) onOpenCustomization();
+              else if (onOpenShop) onOpenShop();
+            }}
+            className="flex items-center gap-2 px-4 py-1.5 rounded-xl bg-gradient-to-r from-[#d4af37] to-[#ffd700] hover:from-[#e5bd38] hover:to-[#ffe033] text-black text-xs font-black uppercase tracking-wider shadow-[0_0_20px_rgba(255,215,0,0.45)] transition-all cursor-pointer active:scale-95 border border-[#ffd700]"
+            title="Abrir Loja de Roupas, Avatares e Poses (Personalização 3D)"
+          >
+            <ShoppingBag className="w-4 h-4 text-black stroke-[2.5]" />
+            <span className="font-extrabold tracking-wide">LOJA & PERSONALIZAR</span>
+          </button>
+
+          {/* LOGIN / CADASTRO ICON BUTTON: "inserri icone d elogin / cadstro na vitrine do usuario" */}
+          {onOpenAuthModal && (
+            <button
+              id="lobby-auth-btn"
+              type="button"
+              onClick={onOpenAuthModal}
+              className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl border text-xs font-bold backdrop-blur-md transition-all cursor-pointer shadow-lg active:scale-95 ${
+                user && !user.isGuest
+                  ? 'bg-emerald-950/70 border-emerald-500/60 text-emerald-300 hover:bg-emerald-900/60'
+                  : 'bg-black/70 hover:bg-[#d4af37]/20 border-[#ffd700]/70 text-[#ffd700] shadow-[0_0_12px_rgba(255,215,0,0.2)]'
+              }`}
+              title={
+                user && !user.isGuest
+                  ? `Conectado como ${user.displayName} (${user.email})`
+                  : 'Fazer Login ou Criar Cadastro'
+              }
+            >
+              <div className="w-5 h-5 rounded-full border border-[#d4af37] flex items-center justify-center">
+                <User className="w-3.5 h-3.5 text-[#ffd700]" />
+              </div>
+              <span className="hidden sm:inline">{user && !user.isGuest ? user.displayName : 'Login / Cadastro'}</span>
+            </button>
+          )}
+
           {/* Botão Abrir Modo Criador */}
           {onOpenEditor && (
             <button
@@ -137,8 +188,7 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
               title="Abrir Modo Criador / Editor 3D"
             >
               <Box className="w-4 h-4" />
-              <span className="hidden sm:inline">Modo Criador</span>
-              <span className="sm:hidden">Editor</span>
+              <span className="hidden md:inline">Modo Criador</span>
             </button>
           )}
 
@@ -155,8 +205,24 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
       {/* CENTER 3D PORTAL HALL
           Player standing in foreground looking at the 3 framed portals */}
       <main className="relative flex-1 flex flex-col items-center justify-center px-4">
+        {/* Quick Action Banner: LOJA & PERSONALIZAR AVATAR */}
+        <div className="z-20 mb-2 flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => {
+              if (onOpenCustomization) onOpenCustomization();
+              else if (onOpenShop) onOpenShop();
+            }}
+            className="flex items-center gap-2.5 px-5 py-2 rounded-xl bg-black/80 hover:bg-[#d4af37] text-[#ffd700] hover:text-black border-2 border-[#ffd700] text-xs font-black tracking-wider uppercase transition-all shadow-[0_0_25px_rgba(255,215,0,0.35)] cursor-pointer active:scale-95"
+            title="Abrir Loja de Roupas e Personalizar Avatar"
+          >
+            <ShoppingBag className="w-4 h-4" />
+            <span>Personalizar Avatar & Loja de Roupas</span>
+          </button>
+        </div>
+
         {/* 3D Perspective Portals Container */}
-        <div className="relative w-full max-w-5xl flex items-center justify-center gap-4 md:gap-8 perspective-[1200px] z-10 pt-4">
+        <div className="relative w-full max-w-5xl flex items-center justify-center gap-4 md:gap-8 perspective-[1200px] z-10 pt-2">
           {portalSlots.map((slot, i) => {
             const room = rooms[slot.index];
             const isCenter = slot.pos === 'center';
@@ -213,6 +279,14 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
 
                       {/* Warm volumetric lighting vignette */}
                       <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/30 pointer-events-none" />
+
+                      {/* Tag badge for rooms created/published in editor */}
+                      {room.isFromEditor && (
+                        <div className="absolute top-2 left-2 z-10 px-2 py-0.5 rounded bg-[#ffd700] text-black text-[9px] font-extrabold uppercase tracking-wider shadow-lg flex items-center gap-1">
+                          <span>✨</span>
+                          <span>Criada no Editor</span>
+                        </div>
+                      )}
 
                       {/* Subtle golden shimmer on highlighted center portal */}
                       {isCenter && (
@@ -332,12 +406,29 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
             type="button"
             onClick={onOpenShop}
             className="flex flex-col items-center justify-center w-14 h-14 rounded-xl bg-black/60 hover:bg-amber-500/10 border border-amber-500/30 hover:border-amber-400 text-amber-400 transition-all cursor-pointer group"
+            title="Abrir Loja de Avatares e Itens"
           >
             <ShoppingBag className="w-5 h-5 group-hover:scale-110 transition-transform" />
             <span className="text-[9px] font-bold tracking-wider mt-1 text-amber-200">
               LOJA
             </span>
           </button>
+
+          {/* Personalização / Inventário de Itens */}
+          {onOpenCustomization && (
+            <button
+              id="nav-personalizar-btn"
+              type="button"
+              onClick={onOpenCustomization}
+              className="flex flex-col items-center justify-center w-14 h-14 rounded-xl bg-black/60 hover:bg-[#d4af37]/20 border border-[#d4af37]/40 hover:border-[#ffd700] text-[#ffd700] transition-all cursor-pointer group"
+              title="Personalização do Usuário (Inventário e Poses)"
+            >
+              <Shirt className="w-5 h-5 group-hover:scale-110 transition-transform" />
+              <span className="text-[9px] font-bold tracking-wider mt-1 text-[#ffd700]">
+                VISUAL
+              </span>
+            </button>
+          )}
 
           {/* Upload 3D - Direct entry to 3D pipeline required in prompt! */}
           <button

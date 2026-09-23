@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Box, ChevronDown, LogOut } from 'lucide-react';
+import { Box, ChevronDown, LogOut, ArrowDown } from 'lucide-react';
 import {
   RoomData,
   AvatarPose,
@@ -40,8 +40,27 @@ export const RoomView: React.FC<RoomViewProps> = ({
   const [selectedPose, setSelectedPose] = useState<AvatarPose>(INITIAL_POSES[1]); // "Rindo" initially active as in Reference 1
 
   // Spots State (puff ouro spots)
-  const [spots] = useState<Spot[]>(INITIAL_SPOTS);
-  const [currentSpotId, setCurrentSpotId] = useState<number>(2); // Center puff is Player
+  const [spots] = useState<Spot[]>(() => {
+    if (room.editorRoom?.spots && room.editorRoom.spots.length > 0) {
+      return room.editorRoom.spots.map((s, idx) => ({
+        id: idx + 1,
+        name: s.name,
+        label: s.name,
+        position: [s.position[0], s.position[1], s.position[2]],
+        rotation: s.rotation,
+      }));
+    }
+    return INITIAL_SPOTS;
+  });
+  const [currentSpotId, setCurrentSpotId] = useState<number>(() => {
+    if (room.editorRoom?.spots && room.editorRoom.spots.length > 0) {
+      return 1;
+    }
+    return 2;
+  }); // Center puff is Player
+
+  // Toggle for discreet blinking down-arrows above spots
+  const [showSpotArrows, setShowSpotArrows] = useState<boolean>(true);
 
   // Camera dropdown state
   const [cameraMode, setCameraMode] = useState<'orbit' | 'frontal' | 'closeup' | 'topdown'>('orbit');
@@ -118,6 +137,8 @@ export const RoomView: React.FC<RoomViewProps> = ({
           cameraMode={cameraMode}
           equippedAccessories={equippedAccessories}
           onUpdateAvatarHeadScreenPos={setScreenHeadPositions}
+          editorRoom={room.editorRoom}
+          showSpotArrows={showSpotArrows}
         />
       </div>
 
@@ -130,7 +151,7 @@ export const RoomView: React.FC<RoomViewProps> = ({
       {/* TOP BAR matching Reference 1:
           Cube Icon | Lounge 3/8 | Orbit camera dropdown | Exit */}
       <header className="absolute top-0 inset-x-0 z-30 flex items-center justify-between px-6 py-4 pointer-events-none">
-        <div className="flex items-center gap-4 pointer-events-auto">
+        <div className="flex items-center gap-3 pointer-events-auto">
           {/* Room Name & Cube Icon */}
           <div className="flex items-center gap-2.5 text-white drop-shadow-md">
             <div className="w-8 h-8 rounded-lg bg-[#ffd700]/15 border border-[#ffd700]/40 flex items-center justify-center text-[#ffd700]">
@@ -143,6 +164,32 @@ export const RoomView: React.FC<RoomViewProps> = ({
               </span>
             </h1>
           </div>
+
+          {/* Playtest Mode Badge */}
+          {room.isPlaytest && (
+            <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/20 border border-emerald-400/60 text-emerald-300 text-xs font-semibold backdrop-blur-md shadow-[0_0_12px_rgba(16,185,129,0.3)]">
+              <span>🧪 MODO TESTE INTERATIVO</span>
+              <span className="text-[10px] text-emerald-200/80 font-normal hidden sm:inline">
+                (Não publicado na vitrine)
+              </span>
+            </div>
+          )}
+
+          {/* Toggle for Blinking Down-Arrow above Spot Circles */}
+          <button
+            type="button"
+            onClick={() => setShowSpotArrows((prev) => !prev)}
+            title={showSpotArrows ? 'Ocultar setas piscando dos spots' : 'Exibir setas piscando dos spots'}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold backdrop-blur-md transition-all cursor-pointer border ${
+              showSpotArrows
+                ? 'bg-[#ffd700]/20 border-[#ffd700]/60 text-[#ffd700] shadow-[0_0_12px_rgba(255,215,0,0.25)]'
+                : 'bg-zinc-800/80 border-zinc-700 text-zinc-400 hover:text-white'
+            }`}
+          >
+            <ArrowDown className={`w-3.5 h-3.5 ${showSpotArrows ? 'animate-bounce' : ''}`} />
+            <span className="hidden sm:inline">Setas nos Spots:</span>
+            <span>{showSpotArrows ? 'ON' : 'OFF'}</span>
+          </button>
 
           {/* Divider */}
           <div className="h-5 w-[1px] bg-white/20" />
@@ -205,17 +252,21 @@ export const RoomView: React.FC<RoomViewProps> = ({
           </div>
         </div>
 
-        {/* Exit Button to return to Hall/Lobby */}
+        {/* Exit Button to return to Hall/Lobby or Editor */}
         <div className="pointer-events-auto">
           <button
             id="exit-room-btn"
             type="button"
             onClick={onExitToLobby}
-            className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-black/40 hover:bg-red-500/20 border border-white/10 hover:border-red-500/40 text-xs font-medium text-zinc-300 hover:text-red-300 backdrop-blur-md transition-colors cursor-pointer"
-            title="Sair da sala e voltar ao Hall de Portais"
+            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl border backdrop-blur-md transition-colors cursor-pointer text-xs font-semibold ${
+              room.isPlaytest
+                ? 'bg-emerald-950/60 hover:bg-emerald-900/80 border-emerald-500/50 text-emerald-300 hover:text-white shadow-[0_0_12px_rgba(16,185,129,0.3)]'
+                : 'bg-black/40 hover:bg-red-500/20 border-white/10 hover:border-red-500/40 text-zinc-300 hover:text-red-300'
+            }`}
+            title={room.isPlaytest ? 'Voltar para o Modo Criador' : 'Sair da sala e voltar ao Hall de Portais'}
           >
-            <LogOut className="w-4 h-4" />
-            <span className="hidden sm:inline">Voltar ao Hall</span>
+            <LogOut className={`w-4 h-4 ${room.isPlaytest ? 'rotate-180' : ''}`} />
+            <span>{room.isPlaytest ? 'Voltar ao Editor' : 'Voltar à Vitrine'}</span>
           </button>
         </div>
       </header>

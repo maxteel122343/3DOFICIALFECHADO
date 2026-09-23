@@ -25,6 +25,7 @@ interface CreatorSidebarProps {
   selectedObjectId?: string | null;
   onSelectObjectId?: (id: string | null) => void;
   onRemoveObject?: (id: string) => void;
+  onUpdateObjectType?: (id: string, type: 'cenario' | 'movel' | 'objeto' | 'avatar') => void;
   onOpenUploadModal: () => void;
   onInsertAssetToScene: (asset: InventoryItem) => void;
   onAddSpot: (type: SpotType, name: string) => void;
@@ -38,6 +39,7 @@ interface CreatorSidebarProps {
   onToggleCollapse?: () => void;
   customAvatarObjectId?: string | null;
   onSetCustomAvatarObjectId?: (id: string | null) => void;
+  isAvatarMode?: boolean;
 }
 
 export const CreatorSidebar: React.FC<CreatorSidebarProps> = ({
@@ -47,6 +49,7 @@ export const CreatorSidebar: React.FC<CreatorSidebarProps> = ({
   selectedObjectId = null,
   onSelectObjectId,
   onRemoveObject,
+  onUpdateObjectType,
   onOpenUploadModal,
   onInsertAssetToScene,
   onAddSpot,
@@ -60,6 +63,7 @@ export const CreatorSidebar: React.FC<CreatorSidebarProps> = ({
   onToggleCollapse,
   customAvatarObjectId = null,
   onSetCustomAvatarObjectId,
+  isAvatarMode = false,
 }) => {
   const [activeTab, setActiveTab] = useState<'spots' | 'objects' | 'inventory'>('spots');
   const [isAddingSpot, setIsAddingSpot] = useState(false);
@@ -362,82 +366,146 @@ export const CreatorSidebar: React.FC<CreatorSidebarProps> = ({
             ) : (
               placedObjects.map((obj) => {
                 const isSelected = selectedObjectId === obj.id;
+                const isAvatarType = obj.type === 'avatar' || obj.isAvatar;
                 const isCustomAvatar = customAvatarObjectId === obj.id;
+
+                const handleObjectClick = () => {
+                  onSelectObjectId?.(obj.id);
+                  // If in Avatar mode and this object is an avatar, make it the active controlled avatar!
+                  if (isAvatarMode && isAvatarType) {
+                    onSetCustomAvatarObjectId?.(obj.id);
+                  }
+                };
+
                 return (
                   <div
                     key={obj.id}
-                    onClick={() => onSelectObjectId?.(obj.id)}
-                    className={`group flex items-center justify-between px-3 py-2 rounded-lg border transition-all cursor-pointer ${
+                    onClick={handleObjectClick}
+                    className={`group flex flex-col gap-2 p-2.5 rounded-lg border transition-all cursor-pointer ${
                       isSelected
                         ? 'border-[#d4af37] bg-[#d4af37]/15 text-[#ffd700] shadow-[0_0_12px_rgba(212,175,55,0.2)]'
+                        : isCustomAvatar
+                        ? 'border-[#ffd700] bg-[#ffd700]/10 text-[#ffd700]'
+                        : isAvatarType
+                        ? 'border-purple-500/40 bg-purple-950/20 text-[#e8d5b5]'
                         : 'border-[#d4af37]/25 hover:border-[#d4af37]/60 bg-black/40 text-[#e8d5b5]/85'
                     }`}
                   >
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <div className="w-7 h-7 rounded border border-[#d4af37]/50 flex items-center justify-center flex-shrink-0 text-[#d4af37] bg-[#121317]">
-                        {obj.modelType === 'sofa' || obj.name.toLowerCase().includes('sofa') ? (
-                          <Armchair className="w-4 h-4" />
-                        ) : obj.name.toLowerCase().includes('cama') || obj.name.toLowerCase().includes('bed') ? (
-                          <Bed className="w-4 h-4" />
-                        ) : (
-                          <Box className="w-4 h-4" />
-                        )}
-                      </div>
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-xs font-semibold truncate block">
-                            {obj.name}
-                          </span>
-                          {isCustomAvatar && (
-                            <span className="text-[9px] font-bold bg-[#d4af37] text-black px-1.5 py-0.2 rounded shadow-sm">
-                              Avatar
-                            </span>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div
+                          className={`w-7 h-7 rounded border flex items-center justify-center flex-shrink-0 ${
+                            isAvatarType
+                              ? 'border-[#ffd700] text-[#ffd700] bg-amber-950/50'
+                              : 'border-[#d4af37]/50 text-[#d4af37] bg-[#121317]'
+                          }`}
+                        >
+                          {isAvatarType ? (
+                            <User className="w-4 h-4 text-[#ffd700]" />
+                          ) : obj.modelType === 'sofa' || obj.name.toLowerCase().includes('sofa') ? (
+                            <Armchair className="w-4 h-4" />
+                          ) : obj.name.toLowerCase().includes('cama') || obj.name.toLowerCase().includes('bed') ? (
+                            <Bed className="w-4 h-4" />
+                          ) : (
+                            <Box className="w-4 h-4" />
                           )}
                         </div>
-                        <span className="text-[10px] font-mono text-[#d4af37]/75">
-                          X: {obj.position[0].toFixed(2)}m · Z: {obj.position[2].toFixed(2)}m
-                        </span>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-xs font-semibold truncate block">
+                              {obj.name}
+                            </span>
+                            {isCustomAvatar && (
+                              <span className="text-[9px] font-bold bg-[#ffd700] text-black px-1.5 py-0.2 rounded shadow-sm animate-pulse">
+                                ⭐ Ativo
+                              </span>
+                            )}
+                          </div>
+                          <span className="text-[10px] font-mono text-[#d4af37]/75">
+                            X: {obj.position[0].toFixed(2)}m · Z: {obj.position[2].toFixed(2)}m
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Actions: Set as Active Avatar & Trash Icon */}
+                      <div className="flex items-center gap-1 flex-shrink-0">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (isCustomAvatar) {
+                              onSetCustomAvatarObjectId?.(null);
+                            } else {
+                              // If setting as custom avatar, also ensure type is avatar
+                              if (!isAvatarType && onUpdateObjectType) {
+                                onUpdateObjectType(obj.id, 'avatar');
+                              }
+                              onSetCustomAvatarObjectId?.(obj.id);
+                            }
+                          }}
+                          className={`p-1.5 rounded transition-colors cursor-pointer text-xs ${
+                            isCustomAvatar
+                              ? 'bg-[#d4af37] text-black ring-1 ring-[#ffd700]'
+                              : 'text-[#d4af37]/70 hover:text-[#ffd700] hover:bg-[#d4af37]/20 border border-transparent hover:border-[#d4af37]/40'
+                          }`}
+                          title={
+                            isCustomAvatar
+                              ? 'Avatar atualmente controlado. Clique para soltar.'
+                              : 'Definir este item como avatar interativo (controlado pelos spots)'
+                          }
+                        >
+                          <User className="w-3.5 h-3.5" />
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onRemoveObject?.(obj.id);
+                          }}
+                          className="p-1.5 rounded text-red-400 hover:text-red-200 hover:bg-red-950/80 border border-transparent hover:border-red-500/60 transition-colors cursor-pointer"
+                          title={`Excluir ${obj.name} da sala`}
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
                       </div>
                     </div>
 
-                    {/* Actions: Set as Avatar & Trash Icon */}
-                    <div className="flex items-center gap-1 flex-shrink-0">
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (isCustomAvatar) {
-                            onSetCustomAvatarObjectId?.(null);
-                          } else {
-                            onSetCustomAvatarObjectId?.(obj.id);
-                          }
-                        }}
-                        className={`p-1.5 rounded transition-colors cursor-pointer text-xs ${
-                          isCustomAvatar
-                            ? 'bg-[#d4af37] text-black ring-1 ring-[#ffd700]'
-                            : 'text-[#d4af37]/70 hover:text-[#ffd700] hover:bg-[#d4af37]/20 border border-transparent hover:border-[#d4af37]/40'
-                        }`}
-                        title={
-                          isCustomAvatar
-                            ? 'Remover como avatar ativo'
-                            : 'Definir este item como avatar do visitante (controlado pelos spots)'
-                        }
-                      >
-                        <User className="w-3.5 h-3.5" />
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onRemoveObject?.(obj.id);
-                        }}
-                        className="p-1.5 rounded text-red-400 hover:text-red-200 hover:bg-red-950/80 border border-transparent hover:border-red-500/60 transition-colors cursor-pointer"
-                        title={`Excluir ${obj.name} da sala`}
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
+                    {/* Type Selector (Móvel | Objeto | Avatar) */}
+                    {onUpdateObjectType && (
+                      <div className="flex items-center gap-1 pt-1 border-t border-[#d4af37]/15">
+                        <span className="text-[9px] uppercase tracking-wider text-[#d4af37]/60 mr-1">
+                          Tipo:
+                        </span>
+                        {(['movel', 'objeto', 'avatar'] as const).map((t) => {
+                          const isActive =
+                            (t === 'avatar' && (obj.type === 'avatar' || obj.isAvatar)) ||
+                            (t !== 'avatar' && obj.type === t && !obj.isAvatar);
+                          return (
+                            <button
+                              key={t}
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onUpdateObjectType(obj.id, t);
+                                if (t === 'avatar' && isAvatarMode) {
+                                  onSetCustomAvatarObjectId?.(obj.id);
+                                }
+                              }}
+                              className={`px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase tracking-wider transition-colors cursor-pointer ${
+                                isActive
+                                  ? t === 'avatar'
+                                    ? 'bg-[#ffd700] text-black font-bold shadow-sm'
+                                    : 'bg-[#d4af37] text-black font-bold'
+                                  : 'bg-black/40 text-[#e8d5b5]/60 hover:text-white border border-[#d4af37]/20'
+                              }`}
+                            >
+                              {t === 'avatar' ? '👤 Avatar' : t}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 );
               })

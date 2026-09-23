@@ -15,12 +15,13 @@ export interface PlacedObject {
   id: string;
   assetId: string;
   name: string;
-  type: 'cenario' | 'movel' | 'objeto';
+  type: 'cenario' | 'movel' | 'objeto' | 'avatar';
+  isAvatar?: boolean;
   position: [number, number, number];
   rotation: [number, number, number];
   scale: [number, number, number];
   color?: string;
-  modelType?: 'sofa' | 'table' | 'chair' | 'plant' | 'house' | 'custom_glb';
+  modelType?: 'sofa' | 'table' | 'chair' | 'plant' | 'house' | 'custom_glb' | 'avatar';
   fileBlobUrl?: string;
   rawDimensions?: [number, number, number];
 }
@@ -42,6 +43,7 @@ export interface PlayableBoundary {
   x: number; // width in meters (e.g. 5.0)
   y: number; // height in meters (e.g. 2.8)
   z: number; // depth in meters (e.g. 6.5)
+  position?: [number, number, number]; // [posX, posY, posZ] offset in meters
   isConfirmed: boolean;
 }
 
@@ -116,6 +118,10 @@ export interface RoomData {
   isFeatured?: boolean;
   ambientColor?: string;
   isCenterHighlighted?: boolean;
+  editorRoomId?: string;
+  isFromEditor?: boolean;
+  editorRoom?: RoomEditorState;
+  isPlaytest?: boolean;
 }
 
 export interface ChatMessage {
@@ -158,4 +164,44 @@ export interface ShopItem {
   equipped: boolean;
   description?: string;
   owned?: boolean;
+}
+
+export type CustomizationCategory = 'chapeus' | 'casacos' | 'sapatos' | 'publicados' | 'todos';
+
+export interface CustomizationItem {
+  id: string;
+  code: string; // e.g. #H001, #C001, #S001
+  name: string;
+  category: 'chapeus' | 'casacos' | 'sapatos' | 'publicados' | 'outros';
+  thumb: string;
+  owned: boolean;
+  equipped: boolean;
+  price?: number;
+  rarity?: 'COMUM' | 'RARO' | 'ÉLITE';
+  description?: string;
+  isPublishedByCreator?: boolean;
+  author?: string;
+  fileBlobUrl?: string;
+}
+
+export interface StoreAvatar {
+  id: string;
+  name: string;
+  rarity: 'COMUM' | 'RARO' | 'ÉLITE';
+  price: number;
+  thumb: string;
+  tags: string[];
+  owned: boolean;
+  applied: boolean;
+  description?: string;
+  author?: string;
+  isUserPublished?: boolean;
+  fileBlobUrl?: string;
+}
+
+export interface AvatarPoseConfig {
+  id: string;
+  name: string;
+  applied: boolean;
+  description?: string;
 }

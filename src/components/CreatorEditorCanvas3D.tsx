@@ -82,6 +82,7 @@ interface CreatorEditorCanvas3DProps {
   onAvatarTeleport: (spotId: string) => void;
   customAvatarObjectId?: string | null;
   onSetCustomAvatarObjectId?: (id: string | null) => void;
+  onUpdateObjectType?: (id: string, type: 'cenario' | 'movel' | 'objeto' | 'avatar') => void;
   onDropItemOnScene?: (item: InventoryItem, coords: [number, number, number]) => void;
 }
 
@@ -200,6 +201,7 @@ export const CreatorEditorCanvas3D: React.FC<CreatorEditorCanvas3DProps> = ({
   onAvatarTeleport,
   customAvatarObjectId = null,
   onSetCustomAvatarObjectId,
+  onUpdateObjectType,
   onDropItemOnScene,
 }) => {
   const mountRef = useRef<HTMLDivElement>(null);
@@ -211,6 +213,7 @@ export const CreatorEditorCanvas3D: React.FC<CreatorEditorCanvas3DProps> = ({
   const customScenarioGroupRef = useRef<THREE.Group | null>(null);
   const placedObjectsGroupRef = useRef<THREE.Group | null>(null);
   const avatarGroupRef = useRef<THREE.Group | null>(null);
+  const activeAvatarHaloRef = useRef<THREE.Group | null>(null);
   const boundaryWireframeRef = useRef<THREE.LineSegments | null>(null);
   const insertionMarkerRef = useRef<THREE.Group | null>(null);
   const animationFrameRef = useRef<number>(0);
@@ -624,6 +627,34 @@ export const CreatorEditorCanvas3D: React.FC<CreatorEditorCanvas3DProps> = ({
     scene.add(avatarGroup);
     avatarGroupRef.current = avatarGroup;
 
+    // Active Avatar Halo Ground Indicator
+    const avatarHaloGroup = new THREE.Group();
+    const haloRingGeo = new THREE.RingGeometry(0.38, 0.48, 32);
+    const haloRingMat = new THREE.MeshBasicMaterial({
+      color: 0xffd700,
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0.9,
+    });
+    const haloRing = new THREE.Mesh(haloRingGeo, haloRingMat);
+    haloRing.rotation.x = -Math.PI / 2;
+    avatarHaloGroup.add(haloRing);
+
+    const innerDiscGeo = new THREE.CircleGeometry(0.36, 32);
+    const innerDiscMat = new THREE.MeshBasicMaterial({
+      color: 0xffd700,
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0.22,
+    });
+    const innerDisc = new THREE.Mesh(innerDiscGeo, innerDiscMat);
+    innerDisc.rotation.x = -Math.PI / 2;
+    avatarHaloGroup.add(innerDisc);
+
+    avatarHaloGroup.visible = false;
+    scene.add(avatarHaloGroup);
+    activeAvatarHaloRef.current = avatarHaloGroup;
+
     // Insertion Point 3D Marker
     const markerGroup = new THREE.Group();
     const ringGeo = new THREE.RingGeometry(0.18, 0.24, 32);
@@ -839,8 +870,8 @@ export const CreatorEditorCanvas3D: React.FC<CreatorEditorCanvas3DProps> = ({
       const raycaster = new THREE.Raycaster();
       raycaster.setFromCamera(mouse, camera);
 
-      // Check if clicking on an object in the scene to select immediately & allow direct dragging
-      if (placedObjectsGroupRef.current && !isAvatarMode) {
+      // Check if clicking on an object in the scene to select immediately & allow direct dragging or avatar control
+      if (placedObjectsGroupRef.current) {
         const objHits = raycaster.intersectObjects(
           placedObjectsGroupRef.current.children,
           true
@@ -852,11 +883,28 @@ export const CreatorEditorCanvas3D: React.FC<CreatorEditorCanvas3DProps> = ({
           }
           if (hitObj && (hitObj as any).userData?.placedObjectId) {
             const foundId = (hitObj as any).userData.placedObjectId;
+            const targetObj = placedObjects.find((o) => o.id === foundId);
+
+            if (isAvatarMode) {
+              // In Avatar Mode: clicking an avatar object controls it!
+              onSelectObject(foundId);
+              onSelectSpot(null);
+              if (
+                targetObj &&
+                (targetObj.type === 'avatar' ||
+                  targetObj.isAvatar ||
+                  targetObj.name.toLowerCase().includes('avatar') ||
+                  customAvatarObjectId === foundId)
+              ) {
+                onSetCustomAvatarObjectId?.(foundId);
+              }
+              return;
+            }
+
             onSelectObject(foundId);
             onSelectSpot(null);
 
             // Prepare for direct drag if in mover, rodar or escalar mode
-            const targetObj = placedObjects.find((o) => o.id === foundId);
             if (targetObj) {
               isDirectDraggingObjectRef.current = true;
               directDragStartPosRef.current = {
@@ -1005,7 +1053,7 @@ export const CreatorEditorCanvas3D: React.FC<CreatorEditorCanvas3DProps> = ({
       raycaster.setFromCamera(mouse, cameraRef.current);
 
       // Check if clicking directly on an object in the 3D scene
-      if (placedObjectsGroupRef.current && !isAvatarMode) {
+      if (placedObjectsGroupRef.current) {
         const objHits = raycaster.intersectObjects(
           placedObjectsGroupRef.current.children,
           true
@@ -1017,8 +1065,19 @@ export const CreatorEditorCanvas3D: React.FC<CreatorEditorCanvas3DProps> = ({
           }
           if (hitObj && (hitObj as any).userData?.placedObjectId) {
             const foundId = (hitObj as any).userData.placedObjectId;
+            const targetObj = placedObjects.find((o) => o.id === foundId);
             onSelectObject(foundId);
             onSelectSpot(null);
+            if (
+              isAvatarMode &&
+              targetObj &&
+              (targetObj.type === 'avatar' ||
+                targetObj.isAvatar ||
+                targetObj.name.toLowerCase().includes('avatar') ||
+                customAvatarObjectId === foundId)
+            ) {
+              onSetCustomAvatarObjectId?.(foundId);
+            }
             return;
           }
         }
@@ -1051,11 +1110,44 @@ export const CreatorEditorCanvas3D: React.FC<CreatorEditorCanvas3DProps> = ({
     };
 
     // Keyboard shortcuts for Blender-style tools: G (move), R (rotate), S (scale), E (elevate), Delete
+    // and Keyboard Arrow Navigation (setas do teclado: frente, trás, lados, cima/baixo)
     const handleKeyDown = (e: KeyboardEvent) => {
       if (
         document.activeElement?.tagName === 'INPUT' ||
         document.activeElement?.tagName === 'TEXTAREA'
       ) {
+        return;
+      }
+
+      // Keyboard arrow keys & WASD to move/pan scenario
+      const step = e.shiftKey ? 1.2 : 0.45;
+      const { theta } = cameraAngleRef.current;
+      const forwardVec = new THREE.Vector3(-Math.sin(theta), 0, -Math.cos(theta)).normalize();
+      const rightVec = new THREE.Vector3(Math.cos(theta), 0, -Math.sin(theta)).normalize();
+
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        cameraTargetRef.current.addScaledVector(forwardVec, step);
+        return;
+      } else if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        cameraTargetRef.current.addScaledVector(forwardVec, -step);
+        return;
+      } else if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        cameraTargetRef.current.addScaledVector(rightVec, -step);
+        return;
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        cameraTargetRef.current.addScaledVector(rightVec, step);
+        return;
+      } else if (e.key === 'PageUp') {
+        e.preventDefault();
+        cameraTargetRef.current.y = Math.min(25, cameraTargetRef.current.y + step);
+        return;
+      } else if (e.key === 'PageDown') {
+        e.preventDefault();
+        cameraTargetRef.current.y = Math.max(-5, cameraTargetRef.current.y - step);
         return;
       }
 
@@ -1388,6 +1480,24 @@ export const CreatorEditorCanvas3D: React.FC<CreatorEditorCanvas3DProps> = ({
             }
           );
         }
+      } else if (
+        obj.type === 'avatar' ||
+        obj.isAvatar ||
+        obj.modelType === 'avatar' ||
+        obj.name.toLowerCase().includes('avatar')
+      ) {
+        const avatarMesh = createSimpleAvatarMesh();
+        objGroup.add(avatarMesh);
+        const dimsRecord = {
+          width: 0.6,
+          height: 1.7,
+          depth: 0.4,
+          targetHeight: 1.7,
+          label: 'Avatar Interativo (~1,70 m)',
+          isRoom: false,
+        };
+        rawDimensionsMapRef.current.set(obj.id, dimsRecord);
+        setRawDimensionsState((prev) => ({ ...prev, [obj.id]: dimsRecord }));
       } else if (obj.modelType === 'sofa' || obj.name.toLowerCase().includes('sofa')) {
         const sofa = createSectionalLSofa();
         objGroup.add(sofa);
@@ -1556,7 +1666,7 @@ export const CreatorEditorCanvas3D: React.FC<CreatorEditorCanvas3DProps> = ({
     }
   }, [showSpatialVerticalGrid]);
 
-  // Re-create boundary box and spatial vertical grid when room boundary dimensions change
+  // Re-create boundary box and spatial vertical grid when room boundary dimensions or position change
   useEffect(() => {
     if (!sceneRef.current) return;
     if (roomBoundaryGroupRef.current) {
@@ -1574,7 +1684,16 @@ export const CreatorEditorCanvas3D: React.FC<CreatorEditorCanvas3DProps> = ({
     newVerticalGrid.visible = showSpatialVerticalGrid;
     sceneRef.current.add(newVerticalGrid);
     spatialVerticalGridGroupRef.current = newVerticalGrid;
-  }, [boundary.x, boundary.y, boundary.z]);
+  }, [
+    boundary.x,
+    boundary.y,
+    boundary.z,
+    boundary.position?.[0],
+    boundary.position?.[1],
+    boundary.position?.[2],
+    showBoundaryGhost,
+    showSpatialVerticalGrid,
+  ]);
 
   // 6. Update Insertion Marker
   useEffect(() => {
@@ -1606,6 +1725,24 @@ export const CreatorEditorCanvas3D: React.FC<CreatorEditorCanvas3DProps> = ({
       avatarGroupRef.current.visible = false;
     }
   }, [isAvatarMode, avatarCurrentSpotId, spots, customAvatarObjectId]);
+
+  // Update Active Avatar Halo position and visibility
+  useEffect(() => {
+    if (!activeAvatarHaloRef.current) return;
+    if (customAvatarObjectId && isAvatarMode) {
+      const activeObj = placedObjects.find((o) => o.id === customAvatarObjectId);
+      if (activeObj) {
+        activeAvatarHaloRef.current.position.set(
+          activeObj.position[0],
+          0.025,
+          activeObj.position[2]
+        );
+        activeAvatarHaloRef.current.visible = true;
+        return;
+      }
+    }
+    activeAvatarHaloRef.current.visible = false;
+  }, [customAvatarObjectId, isAvatarMode, placedObjects]);
 
   // Spot dragging logic (only active when lockSpots is false)
   const handleSpotDragMouseDown = (spotId: string, e: React.MouseEvent) => {
@@ -2040,7 +2177,9 @@ export const CreatorEditorCanvas3D: React.FC<CreatorEditorCanvas3DProps> = ({
           <span className="text-[#d4af37]/40">·</span>
           <span className="text-[#e8d5b5]/80">Room: {boundary.x}×{boundary.z}×{boundary.y}m</span>
           <span className="text-[#d4af37]/40">·</span>
-          <span className="text-[#ffd700] font-sans font-medium">🖱️ Botão Direito: Mover Tela (Pan)</span>
+          <span className="text-[#ffd700] font-sans font-medium">🖱️ Botão Dir: Pan</span>
+          <span className="text-[#d4af37]/40">·</span>
+          <span className="text-[#ffd700] font-sans font-medium">⌨️ Setas: Mover Cenário (↑ Frente · ↓ Trás · ← Lados · PgUp/PgDn Altura)</span>
         </div>
       </div>
 
@@ -2453,6 +2592,41 @@ export const CreatorEditorCanvas3D: React.FC<CreatorEditorCanvas3DProps> = ({
               <span className="text-[10px] text-emerald-400/80">Solo = 0.00m</span>
             </div>
 
+            {/* Object Type Selector: Movel | Objeto | Avatar */}
+            {onUpdateObjectType && (
+              <div className="flex items-center justify-between border-t border-[#d4af37]/20 pt-1.5 text-[10px]">
+                <span className="text-[9px] uppercase font-bold text-[#d4af37]/70">Tipo do Item:</span>
+                <div className="flex items-center gap-1">
+                  {(['movel', 'objeto', 'avatar'] as const).map((t) => {
+                    const isActive =
+                      (t === 'avatar' && (selectedObj.type === 'avatar' || selectedObj.isAvatar)) ||
+                      (t !== 'avatar' && selectedObj.type === t && !selectedObj.isAvatar);
+                    return (
+                      <button
+                        key={t}
+                        type="button"
+                        onClick={() => {
+                          onUpdateObjectType(selectedObj.id, t);
+                          if (t === 'avatar') {
+                            onSetCustomAvatarObjectId?.(selectedObj.id);
+                          }
+                        }}
+                        className={`px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase tracking-wider transition-colors cursor-pointer ${
+                          isActive
+                            ? t === 'avatar'
+                              ? 'bg-[#ffd700] text-black font-bold shadow-sm ring-1 ring-[#ffd700]'
+                              : 'bg-[#d4af37] text-black font-bold'
+                            : 'bg-black/40 text-[#e8d5b5]/70 hover:text-white border border-[#d4af37]/30'
+                        }`}
+                      >
+                        {t === 'avatar' ? '👤 Avatar' : t}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             {/* DYNAMIC INTERACTIVE SLIDER BAR: Drag to increase/decrease smoothly! */}
             {activeGizmoMode === 'escalar' && (() => {
               const objDims = rawDimensionsState[selectedObj.id] ||
@@ -2687,6 +2861,39 @@ export const CreatorEditorCanvas3D: React.FC<CreatorEditorCanvas3DProps> = ({
           </div>
 
           <div className="w-[1px] h-3 border-l border-dashed border-[#d4af37]/70 my-0.5" />
+        </div>
+      )}
+
+      {/* FLOATING HUD IN AVATAR MODE: Shows active controlled avatar */}
+      {selectedObj && objectGizmoScreenPos && isAvatarMode && (
+        <div
+          style={{
+            left: `${objectGizmoScreenPos.x}px`,
+            top: `${objectGizmoScreenPos.y}px`,
+          }}
+          className="absolute transform -translate-x-1/2 -translate-y-full z-20 flex flex-col items-center pointer-events-auto animate-fade-in"
+        >
+          <div className="bg-[#121317]/95 border-2 border-[#ffd700] rounded-xl px-3.5 py-1.5 shadow-[0_0_20px_rgba(255,215,0,0.45)] backdrop-blur-md flex items-center gap-2.5 text-white">
+            <span className="w-2.5 h-2.5 rounded-full bg-[#ffd700] animate-ping" />
+            <span className="text-xs font-bold text-[#ffd700]">
+              {customAvatarObjectId === selectedObj.id
+                ? `⭐ Controlando: ${selectedObj.name}`
+                : `Item: ${selectedObj.name}`}
+            </span>
+            {customAvatarObjectId !== selectedObj.id && (
+              <button
+                type="button"
+                onClick={() => onSetCustomAvatarObjectId?.(selectedObj.id)}
+                className="px-2 py-0.5 rounded bg-[#ffd700] text-black text-[10px] font-extrabold uppercase cursor-pointer hover:bg-amber-300 transition-colors"
+              >
+                Controlar
+              </button>
+            )}
+            <span className="text-[10px] text-[#e8d5b5]/80 hidden sm:inline">
+              · Clique nos spots para mover
+            </span>
+          </div>
+          <div className="w-[1px] h-3 border-l border-dashed border-[#ffd700] my-0.5" />
         </div>
       )}
 
@@ -3641,11 +3848,17 @@ function createMetricGridAndAxes(): { group: THREE.Group; labelsGroup: THREE.Gro
 }
 
 // 2. Room Limit Box: 6m x 8m x 2.8m (Height 2.8m, Ground at Y = 0)
-function createRoomBoundaryBox(boundary: { x: number; y: number; z: number }): THREE.Group {
+function createRoomBoundaryBox(boundary: PlayableBoundary): THREE.Group {
   const group = new THREE.Group();
   const bx = boundary.x || 6.0;
   const by = boundary.y || 2.8; // Ceiling 2.80m
   const bz = boundary.z || 8.0;
+
+  // Position offset (user can move boundary box anywhere in 3D scene)
+  const px = boundary.position?.[0] || 0;
+  const py = boundary.position?.[1] || 0;
+  const pz = boundary.position?.[2] || 0;
+  group.position.set(px, py, pz);
 
   const halfX = bx / 2;
   const halfZ = bz / 2;
@@ -3701,7 +3914,11 @@ function createRoomBoundaryBox(boundary: { x: number; y: number; z: number }): T
   });
 
   // Ceiling Height Label
-  const ceilBadge = createMetricTextSprite(`Teto Room: ${by.toFixed(2)}m (6×8m)`, '#121317', '#ffd700');
+  const ceilBadge = createMetricTextSprite(
+    `Limite Room: ${bx.toFixed(1)}×${bz.toFixed(1)}×${by.toFixed(2)}m`,
+    '#121317',
+    '#ffd700'
+  );
   ceilBadge.position.set(0, by + 0.12, -halfZ);
   group.add(ceilBadge);
 
@@ -3710,7 +3927,7 @@ function createRoomBoundaryBox(boundary: { x: number; y: number; z: number }): T
 
 // 2b. Spatial Vertical Grid (Grades no espaço na vertical - paredes de fundo e lateral ou ponto fixado)
 function createSpatialVerticalGrid(
-  boundary: { x: number; y: number; z: number },
+  boundary: PlayableBoundary,
   originPoint?: [number, number, number] | null
 ): THREE.Group {
   const group = new THREE.Group();
@@ -3718,6 +3935,11 @@ function createSpatialVerticalGrid(
 
   if (originPoint) {
     group.position.set(originPoint[0], originPoint[1], originPoint[2]);
+  } else {
+    const px = boundary.position?.[0] || 0;
+    const py = boundary.position?.[1] || 0;
+    const pz = boundary.position?.[2] || 0;
+    group.position.set(px, py, pz);
   }
 
   const bx = boundary.x || 6.0;

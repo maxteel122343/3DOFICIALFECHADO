@@ -6,12 +6,16 @@ interface PublishModalProps {
   isOpen: boolean;
   onClose: () => void;
   room: RoomEditorState;
+  onGoToVitrine?: () => void;
+  onPlaytest?: () => void;
 }
 
 export const PublishModal: React.FC<PublishModalProps> = ({
   isOpen,
   onClose,
   room,
+  onGoToVitrine,
+  onPlaytest,
 }) => {
   if (!isOpen) return null;
 
@@ -21,7 +25,7 @@ export const PublishModal: React.FC<PublishModalProps> = ({
         {/* Header */}
         <div className="flex items-center justify-between pb-4 border-b border-[#d4af37]/20">
           <div className="flex items-center gap-2">
-            <CheckCircle2 className="w-5 h-5 text-[#d4af37]" />
+            <CheckCircle2 className="w-5 h-5 text-[#ffd700]" />
             <h2 className="text-sm font-semibold tracking-wider text-[#e8d5b5]">
               Room Publicada na Vitrine
             </h2>
@@ -67,19 +71,45 @@ export const PublishModal: React.FC<PublishModalProps> = ({
                   <MapPin className="w-3 h-3 text-[#d4af37]" /> {room.spots.length} Spots
                 </span>
               </div>
-              <span className="text-[#d4af37] font-medium">Modo Criador</span>
+              <span className="text-[#ffd700] font-semibold">Vitrine Pronta</span>
             </div>
 
             <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/40 pointer-events-none" />
           </div>
         </div>
 
-        {/* Action Button */}
-        <div>
+        {/* Action Buttons */}
+        <div className="flex flex-col sm:flex-row gap-2.5">
+          {onGoToVitrine && (
+            <button
+              type="button"
+              onClick={() => {
+                onClose();
+                onGoToVitrine();
+              }}
+              className="flex-1 py-2.5 rounded bg-gradient-to-r from-[#d4af37] to-[#ffd700] text-black text-xs font-bold tracking-wider uppercase hover:brightness-110 shadow-[0_0_15px_rgba(212,175,55,0.4)] transition-all cursor-pointer text-center"
+            >
+              Ver na Vitrine
+            </button>
+          )}
+
+          {onPlaytest && (
+            <button
+              type="button"
+              onClick={() => {
+                onClose();
+                onPlaytest();
+              }}
+              className="flex-1 py-2.5 rounded border border-[#d4af37] bg-[#d4af37]/20 hover:bg-[#d4af37]/35 text-[#ffd700] text-xs font-semibold tracking-wider uppercase transition-colors cursor-pointer text-center"
+            >
+              Testar Agora
+            </button>
+          )}
+
           <button
             type="button"
             onClick={onClose}
-            className="w-full py-2.5 rounded border border-[#d4af37]/80 hover:border-[#ffd700] bg-transparent hover:bg-[#d4af37]/15 text-[#e8d5b5] hover:text-[#ffd700] text-xs font-semibold tracking-wider uppercase transition-colors cursor-pointer"
+            className="flex-1 py-2.5 rounded border border-[#d4af37]/50 hover:border-[#ffd700] bg-transparent hover:bg-[#d4af37]/10 text-[#e8d5b5] hover:text-[#ffd700] text-xs font-semibold tracking-wider uppercase transition-colors cursor-pointer text-center"
           >
             Continuar Editando
           </button>

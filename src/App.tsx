@@ -8,10 +8,17 @@ import { AuthModal } from './components/AuthModal';
 import { PublishModal } from './components/PublishModal';
 import { LobbyView } from './components/LobbyView';
 import { RoomView } from './components/RoomView';
+import { UserCustomizationView } from './components/UserCustomizationView';
 import { INITIAL_INVENTORY, INITIAL_ROOMS } from './data/creatorData';
 import { INITIAL_ROOMS as INITIAL_LOBBY_ROOMS } from './data/initialData';
 import {
+  INITIAL_CUSTOMIZATION_ITEMS,
+  INITIAL_STORE_AVATARS,
+  INITIAL_POSES as INITIAL_CUSTOMIZATION_POSES,
+} from './data/initialCustomizationData';
+import {
   RoomEditorState,
+  PlacedObject,
   InventoryItem,
   GizmoEditMode,
   SpotItem,
@@ -19,15 +26,46 @@ import {
   PlayableBoundary,
   CreatorUser,
   RoomData,
+  CustomizationItem,
+  StoreAvatar,
+  AvatarPoseConfig,
 } from './types';
 import { supabase } from './lib/supabase';
 import { Lightbulb, Sparkles, Maximize2, Minimize2 } from 'lucide-react';
 
 export const App: React.FC = () => {
-  // Navigation State between Editor, Rooms Lobby, and Social Room
-  const [currentScreen, setCurrentScreen] = useState<'editor' | 'lobby' | 'room'>('editor');
+  // Navigation State between Editor, Rooms Lobby, Social Room, and User Customization/Loja
+  const [currentScreen, setCurrentScreen] = useState<'editor' | 'lobby' | 'room' | 'customization'>('lobby');
+  const [customizationInitialTab, setCustomizationInitialTab] = useState<'loja' | 'inventario' | 'poses'>('inventario');
   const [lobbyRoomIndex, setLobbyRoomIndex] = useState<number>(1);
   const [selectedLobbyRoom, setSelectedLobbyRoom] = useState<RoomData | null>(null);
+
+  // Customization & Shop State (Matching User Images 2 & 3)
+  const [customizationItems, setCustomizationItems] = useState<CustomizationItem[]>(() => {
+    const saved = localStorage.getItem('3d_social_creator_customization_items');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {
+        return INITIAL_CUSTOMIZATION_ITEMS;
+      }
+    }
+    return INITIAL_CUSTOMIZATION_ITEMS;
+  });
+
+  const [storeAvatars, setStoreAvatars] = useState<StoreAvatar[]>(() => {
+    const saved = localStorage.getItem('3d_social_creator_store_avatars');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {
+        return INITIAL_STORE_AVATARS;
+      }
+    }
+    return INITIAL_STORE_AVATARS;
+  });
+
+  const [avatarPoses, setAvatarPoses] = useState<AvatarPoseConfig[]>(INITIAL_CUSTOMIZATION_POSES);
 
   // Rooms State (Room A | Room B | + Nova room)
   const [rooms, setRooms] = useState<RoomEditorState[]>(() => {
@@ -119,6 +157,14 @@ export const App: React.FC = () => {
   }, [inventory]);
 
   useEffect(() => {
+    localStorage.setItem('3d_social_creator_customization_items', JSON.stringify(customizationItems));
+  }, [customizationItems]);
+
+  useEffect(() => {
+    localStorage.setItem('3d_social_creator_store_avatars', JSON.stringify(storeAvatars));
+  }, [storeAvatars]);
+
+  useEffect(() => {
     if (user) {
       localStorage.setItem('3d_social_creator_user', JSON.stringify(user));
     }
@@ -143,6 +189,115 @@ export const App: React.FC = () => {
     setTimeout(() => {
       setStatusToast(null);
     }, 3200);
+  };
+
+  // Customization & Shop Handlers (matching user request)
+  const handleToggleEquipItem = (itemId: string) => {
+    setCustomizationItems((prev) => {
+      const target = prev.find((i) => i.id === itemId);
+      if (!target) return prev;
+      const willEquip = !target.equipped;
+
+      return prev.map((item) => {
+        if (item.id === itemId) {
+          return { ...item, equipped: willEquip };
+        }
+        // If equipping, unequip others in the same category
+        if (willEquip && item.category === target.category) {
+          return { ...item, equipped: false };
+        }
+        return item;
+      });
+    });
+    showToast('Aparência atualizada no pedestal!');
+  };
+
+  const handleRemoveItemFromInventory = (itemId: string) => {
+    setCustomizationItems((prev) =>
+      prev.map((item) =>
+        item.id === itemId ? { ...item, owned: false, equipped: false } : item
+      )
+    );
+    showToast('Item removido do inventário de comprados.');
+  };
+
+  const handleApplyPose = (poseId: string) => {
+    setAvatarPoses((prev) =>
+      prev.map((p) => ({
+        ...p,
+        applied: p.id === poseId,
+      }))
+    );
+  };
+
+  const handleRemovePose = (poseId: string) => {
+    setAvatarPoses((prev) =>
+      prev.map((p) =>
+        p.id === poseId ? { ...p, applied: false } : p
+      )
+    );
+  };
+
+  const handleAcquireStoreAvatar = (avatarId: string) => {
+    setStoreAvatars((prev) =>
+      prev.map((a) => {
+        if (a.id === avatarId) {
+          return { ...a, owned: true, applied: true };
+        }
+        return { ...a, applied: false };
+      })
+    );
+  };
+
+  const handleAcquireCustomItem = (item: CustomizationItem) => {
+    setCustomizationItems((prev) => {
+      const exists = prev.some((i) => i.id === item.id);
+      if (exists) {
+        return prev.map((i) => (i.id === item.id ? { ...i, owned: true } : i));
+      }
+      return [...prev, { ...item, owned: true, equipped: false }];
+    });
+  };
+
+  const handlePublishCustomItem = (itemData: Partial<CustomizationItem>) => {
+    const newItem: CustomizationItem = {
+      id: itemData.id || `pub-${Date.now()}`,
+      code: itemData.code || `#P00${customizationItems.length + 1}`,
+      name: itemData.name || 'Novo Item',
+      category: itemData.category || 'chapeus',
+      thumb: itemData.thumb || 'https://images.unsplash.com/photo-1551028719-00167b16eac5?auto=format&fit=crop&w=400&q=80',
+      owned: true,
+      equipped: false,
+      price: itemData.price || 0,
+      rarity: itemData.rarity || 'RARO',
+      isPublishedByCreator: true,
+      author: user?.displayName || 'Luzenne',
+      description: itemData.description,
+    };
+
+    setCustomizationItems((prev) => [newItem, ...prev]);
+    showToast(`"${newItem.name}" publicado com sucesso! Agora disponível para qualquer usuário na Loja.`);
+  };
+
+  const handlePublishInventoryItemToStore = (invItem: InventoryItem) => {
+    const publishedItem: CustomizationItem = {
+      id: `pub-${invItem.id}`,
+      code: `#P00${customizationItems.length + 1}`,
+      name: invItem.displayName,
+      category: invItem.type === 'Avatar' ? 'outros' : 'chapeus',
+      thumb: invItem.thumbUrl,
+      owned: true,
+      equipped: false,
+      price: 0, // Free for community to grab
+      rarity: 'RARO',
+      isPublishedByCreator: true,
+      author: user?.displayName || 'Luzenne',
+      fileBlobUrl: invItem.fileBlobUrl,
+      description: `Item 3D criado por ${user?.displayName || 'Luzenne'}.`,
+    };
+
+    setCustomizationItems((prev) => [publishedItem, ...prev]);
+    showToast(`"${invItem.displayName}" foi publicado na Loja e pode ser pego por outros usuários!`);
   };
 
   // Add new Room tab
@@ -185,36 +340,42 @@ export const App: React.FC = () => {
   ) => {
     setInventory((prev) => [item, ...prev]);
 
-    // If it's a Sala (cenário), load directly as the room's 3D environment!
+    // If user explicitly chose to apply as room scenario right away:
     if (item.type === 'Sala') {
-      setRooms((prev) =>
-        prev.map((r) =>
-          r.id === activeRoomId
-            ? {
-                ...r,
-                sceneAssetId: item.id,
-                sceneAssetBlobUrl: item.fileBlobUrl,
-              }
-            : r
-        )
-      );
-      showToast(`Cenário 3D "${item.displayName}" carregado na room!`);
+      if (autoInsertPoint) {
+        setRooms((prev) =>
+          prev.map((r) =>
+            r.id === activeRoomId
+              ? {
+                  ...r,
+                  sceneAssetId: item.id,
+                  sceneAssetBlobUrl: item.fileBlobUrl,
+                }
+              : r
+          )
+        );
+        showToast(`Cenário 3D "${item.displayName}" aplicado na room!`);
+      } else {
+        showToast(`Cenário "${item.displayName}" salvo no inventário! Clique em "Usar Cenário" quando desejar aplicar.`);
+      }
       return;
     }
 
-    // If an insertion point was marked or requested for Item
-    const targetPoint = autoInsertPoint || insertionCursorPoint;
-    if (targetPoint && item.type === 'Item') {
+    // If user explicitly chose to insert into scene right away:
+    if (autoInsertPoint && (item.type === 'Item' || item.type === 'Avatar')) {
+      const targetPoint = autoInsertPoint;
       const newObjId = `obj-${Date.now()}`;
-      const newPlacedObject = {
+      const isAvatarType = item.type === 'Avatar';
+      const newPlacedObject: PlacedObject = {
         id: newObjId,
         assetId: item.id,
         name: item.displayName,
-        type: 'movel' as const,
+        type: isAvatarType ? 'avatar' : 'movel',
+        isAvatar: isAvatarType,
         position: [targetPoint[0], 0.0, targetPoint[2]] as [number, number, number],
         rotation: [0, 0, 0] as [number, number, number],
         scale: [1, 1, 1] as [number, number, number],
-        modelType: (item.modelType || 'custom_glb') as any,
+        modelType: (item.modelType || (isAvatarType ? 'avatar' : 'custom_glb')) as any,
         fileBlobUrl: item.fileBlobUrl,
       };
 
@@ -228,9 +389,12 @@ export const App: React.FC = () => {
       setSelectedObjectId(newObjId);
       setSelectedSpotId(null);
       setInsertionCursorPoint(null);
-      showToast(`"${item.displayName}" inserido exatamente no ponto [${targetPoint[0]}, ${targetPoint[2]}]!`);
+      if (isAvatarType) {
+        setCustomAvatarObjectId(newObjId);
+      }
+      showToast(`"${item.displayName}" inserido na cena 3D!`);
     } else {
-      showToast(`Arquivo "${item.displayName}" adicionado ao inventário!`);
+      showToast(`"${item.displayName}" salvo no inventário! Clique em "Inserir na Cena" quando desejar colocá-lo.`);
     }
   };
 
@@ -533,41 +697,180 @@ export const App: React.FC = () => {
       )
     );
     setIsPublishModalOpen(true);
+    showToast(`"${activeRoom.name}" publicada com sucesso! Ela agora aparece na Vitrine.`);
   };
 
-  // Screen 1: Lobby View (Portals & Social Hall)
-  if (currentScreen === 'lobby') {
-    return (
-      <LobbyView
-        rooms={INITIAL_LOBBY_ROOMS}
-        selectedRoomIndex={lobbyRoomIndex}
-        onSelectRoomIndex={setLobbyRoomIndex}
-        onEnterRoom={(room) => {
-          setSelectedLobbyRoom(room);
-          setCurrentScreen('room');
-        }}
-        onOpenUpload={() => setIsUploadModalOpen(true)}
-        onOpenShop={() => {}}
-        onOpenFriends={() => {}}
-        onOpenEditor={() => setCurrentScreen('editor')}
-      />
+  // Change placed object type (Móvel | Objeto | Avatar)
+  const handleUpdateObjectType = (
+    id: string,
+    type: 'cenario' | 'movel' | 'objeto' | 'avatar'
+  ) => {
+    setRooms((prev) =>
+      prev.map((r) =>
+        r.id === activeRoomId
+          ? {
+              ...r,
+              placedObjects: r.placedObjects.map((obj) =>
+                obj.id === id
+                  ? {
+                      ...obj,
+                      type,
+                      isAvatar: type === 'avatar',
+                    }
+                  : obj
+              ),
+            }
+          : r
+      )
     );
-  }
 
-  // Screen 2: Social Room View (Avatar Lounge with Poses, Chat & Gizmo)
-  if (currentScreen === 'room' && selectedLobbyRoom) {
-    return (
-      <RoomView
-        room={selectedLobbyRoom}
-        onExitToLobby={() => setCurrentScreen('lobby')}
-        equippedAccessories={[]}
-      />
-    );
-  }
+    if (type === 'avatar') {
+      setCustomAvatarObjectId(id);
+      showToast(`Objeto definido como Avatar! Ative o Modo Avatar para controlá-lo nos spots.`);
+    } else {
+      if (customAvatarObjectId === id) {
+        setCustomAvatarObjectId(null);
+      }
+      showToast(`Tipo de objeto alterado para "${type}".`);
+    }
+  };
 
-  // Screen 3: Creator Editor 3D Mode
+  // Dynamic lobby showcase rooms (combining default rooms + published editor rooms)
+  const lobbyRooms: RoomData[] = React.useMemo(() => {
+    const publishedEditorRooms: RoomData[] = rooms
+      .filter((r) => r.isPublished)
+      .map((r) => ({
+        id: `editor-${r.id}`,
+        name: r.name,
+        badge: '👑',
+        occupation: '0/8',
+        currentUsers: 0,
+        maxUsers: 8,
+        thumb:
+          r.sceneAssetId === 'inv-scene-1'
+            ? 'https://images.unsplash.com/photo-1582719478250-c89cae4dc85b?auto=format&fit=crop&w=800&q=80'
+            : r.sceneAssetId === 'inv-scene-2'
+            ? 'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=800&q=80'
+            : 'https://images.unsplash.com/photo-1512917774080-9991f1c4c750?auto=format&fit=crop&w=800&q=80',
+        description: `Room criada no Modo Criador · Limite ${r.boundary.x}m × ${r.boundary.y}m × ${r.boundary.z}m com ${r.spots.length} spots ativos.`,
+        isFromEditor: true,
+        editorRoomId: r.id,
+        editorRoom: r,
+        ambientColor: '#ffd700',
+      }));
+
+    return [...INITIAL_LOBBY_ROOMS, ...publishedEditorRooms];
+  }, [rooms]);
+
+  // Handle Playtest room without publishing or appearing in vitrine
+  const handlePlaytestActiveRoom = () => {
+    setIsPublishModalOpen(false);
+    const playtestRoomData: RoomData = {
+      id: `playtest-${activeRoom.id}`,
+      name: `[TESTE] ${activeRoom.name}`,
+      badge: '🧪',
+      occupation: '1/8 (Você)',
+      currentUsers: 1,
+      maxUsers: 8,
+      thumb:
+        activeRoom.sceneAssetId === 'inv-scene-1'
+          ? 'https://images.unsplash.com/photo-1582719478250-c89cae4dc85b?auto=format&fit=crop&w=800&q=80'
+          : activeRoom.sceneAssetId === 'inv-scene-2'
+          ? 'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=800&q=80'
+          : 'https://images.unsplash.com/photo-1512917774080-9991f1c4c750?auto=format&fit=crop&w=800&q=80',
+      description: `Modo teste interativo da room. Interaja com os spots e avatar sem publicar na vitrine.`,
+      isFromEditor: true,
+      editorRoomId: activeRoom.id,
+      editorRoom: activeRoom,
+      isPlaytest: true,
+      ambientColor: '#ffd700',
+    };
+    setSelectedLobbyRoom(playtestRoomData);
+    setCurrentScreen('room');
+    showToast(`Iniciando Modo Teste Interativo de "${activeRoom.name}"!`);
+  };
+
+  // Go to showcase after publishing
+  const handleGoToVitrine = () => {
+    setIsPublishModalOpen(false);
+    const targetRoomId = `editor-${activeRoom.id}`;
+    const foundIndex = lobbyRooms.findIndex((r) => r.id === targetRoomId);
+    if (foundIndex >= 0) {
+      setLobbyRoomIndex(foundIndex);
+    }
+    setCurrentScreen('lobby');
+    showToast(`Exibindo "${activeRoom.name}" na Vitrine de Rooms!`);
+  };
+
   return (
-    <div className="w-screen h-screen bg-[#0a0b0d] text-[#e0cfb3] font-sans flex items-center justify-center p-0 md:p-3 overflow-hidden select-none">
+    <>
+      {/* Screen 1: Lobby View (Portals & Social Hall) */}
+      {currentScreen === 'lobby' && (
+        <LobbyView
+          rooms={lobbyRooms}
+          selectedRoomIndex={lobbyRoomIndex}
+          onSelectRoomIndex={setLobbyRoomIndex}
+          onEnterRoom={(room) => {
+            setSelectedLobbyRoom(room);
+            setCurrentScreen('room');
+          }}
+          onOpenUpload={() => setIsUploadModalOpen(true)}
+          onOpenShop={() => {
+            setCustomizationInitialTab('loja');
+            setCurrentScreen('customization');
+          }}
+          onOpenCustomization={() => {
+            setCustomizationInitialTab('inventario');
+            setCurrentScreen('customization');
+          }}
+          onOpenFriends={() => {
+            showToast('Lista de amigos conectada.');
+          }}
+          onOpenEditor={() => setCurrentScreen('editor')}
+          user={user}
+          onOpenAuthModal={() => setIsAuthModalOpen(true)}
+        />
+      )}
+
+      {/* Screen 2: User Customization & Loja View (Matching Images 2 & 3) */}
+      {currentScreen === 'customization' && (
+        <UserCustomizationView
+          onBackToLobby={() => setCurrentScreen('lobby')}
+          user={user}
+          onOpenAuthModal={() => setIsAuthModalOpen(true)}
+          initialTab={customizationInitialTab}
+          userInventory={inventory}
+          customizationItems={customizationItems}
+          storeAvatars={storeAvatars}
+          poses={avatarPoses}
+          onToggleEquipItem={handleToggleEquipItem}
+          onRemoveItemFromInventory={handleRemoveItemFromInventory}
+          onApplyPose={handleApplyPose}
+          onRemovePose={handleRemovePose}
+          onAcquireStoreAvatar={handleAcquireStoreAvatar}
+          onAcquireCustomItem={handleAcquireCustomItem}
+          onPublishCustomItem={handlePublishCustomItem}
+        />
+      )}
+
+      {/* Screen 3: Social Room View (Avatar Lounge with Poses, Chat & Gizmo) */}
+      {currentScreen === 'room' && selectedLobbyRoom && (
+        <RoomView
+          room={selectedLobbyRoom}
+          onExitToLobby={() => {
+            if (selectedLobbyRoom.isPlaytest) {
+              setCurrentScreen('editor');
+            } else {
+              setCurrentScreen('lobby');
+            }
+          }}
+          equippedAccessories={[]}
+        />
+      )}
+
+      {/* Screen 4: Creator Editor 3D Mode */}
+      {currentScreen === 'editor' && (
+        <div className="w-screen h-screen bg-[#0a0b0d] text-[#e0cfb3] font-sans flex items-center justify-center p-0 md:p-3 overflow-hidden select-none">
       {/* 16:9 Mockup Frame with Fine Gold Border matching the new visual identity */}
       <div
         className={`relative w-full h-full bg-[#101115] border border-[#d4af37]/30 rounded-none md:rounded-xl overflow-hidden shadow-[0_0_35px_rgba(0,0,0,0.85)] flex flex-col ${
@@ -586,6 +889,7 @@ export const App: React.FC = () => {
           onAddNewRoom={handleAddNewRoom}
           onOpenBoundaryModal={() => setIsBoundaryModalOpen(true)}
           onPublishRoom={handlePublishRoom}
+          onPlaytestRoom={handlePlaytestActiveRoom}
           onOpenAuthModal={() => setIsAuthModalOpen(true)}
           user={user}
           isAvatarMode={isAvatarMode}
@@ -631,6 +935,7 @@ export const App: React.FC = () => {
             onToggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
             customAvatarObjectId={customAvatarObjectId}
             onSetCustomAvatarObjectId={setCustomAvatarObjectId}
+            onUpdateObjectType={handleUpdateObjectType}
           />
 
           {/* 3D Scene Viewport */}
@@ -675,6 +980,7 @@ export const App: React.FC = () => {
               onAvatarTeleport={handleAvatarTeleport}
               customAvatarObjectId={customAvatarObjectId}
               onSetCustomAvatarObjectId={setCustomAvatarObjectId}
+              onUpdateObjectType={handleUpdateObjectType}
               onDropItemOnScene={handleDropItemOnScene}
             />
 
@@ -715,53 +1021,54 @@ export const App: React.FC = () => {
             <span>Clique no sofá = avatar vai para este spot.</span>
           </div>
         </footer>
-
-        {/* Global Toast Notification */}
-        {statusToast && (
-          <div className="absolute top-14 left-1/2 -translate-x-1/2 z-50 bg-[#121317] border border-[#d4af37] px-4 py-2 rounded-xl text-xs font-semibold text-[#ffd700] shadow-[0_4px_25px_rgba(0,0,0,0.85)] animate-fade-in flex items-center gap-2">
-            <Sparkles className="w-3.5 h-3.5 text-[#ffd700]" />
-            <span>{statusToast}</span>
-          </div>
-        )}
       </div>
-
-      {/* MODALS */}
-      {/* Upload GLB Modal (creates real blob URLs and loads 3D scene) */}
-      <UploadGLBModal
-        isOpen={isUploadModalOpen}
-        onClose={() => setIsUploadModalOpen(false)}
-        onUploadSuccess={handleUploadSuccess}
-        userDisplayName={user?.displayName || 'Luzenne'}
-      />
-
-      {/* Definir Limite Modal */}
-      <BoundaryModal
-        isOpen={isBoundaryModalOpen}
-        onClose={() => setIsBoundaryModalOpen(false)}
-        boundary={activeRoom.boundary}
-        onSaveBoundary={handleSaveBoundary}
-        roomName={activeRoom.name}
-      />
-
-      {/* Supabase Auth Modal */}
-      <AuthModal
-        isOpen={isAuthModalOpen}
-        onClose={() => setIsAuthModalOpen(false)}
-        currentUser={user}
-        onAuthSuccess={(u) => {
-          setUser(u);
-          showToast(`Conectado como ${u.displayName}`);
-        }}
-      />
-
-      {/* Publish Vitrine Success Modal */}
-      <PublishModal
-        isOpen={isPublishModalOpen}
-        onClose={() => setIsPublishModalOpen(false)}
-        room={activeRoom}
-      />
     </div>
-  );
+  )}
+
+  {/* Global Toast Notification (Accessible on all screens) */}
+  {statusToast && (
+    <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[9999] bg-[#121317] border border-[#ffd700] px-5 py-2.5 rounded-xl text-xs font-bold text-[#ffd700] shadow-[0_4px_30px_rgba(0,0,0,0.9)] animate-fade-in flex items-center gap-2 pointer-events-none">
+      <Sparkles className="w-4 h-4 text-[#ffd700]" />
+      <span>{statusToast}</span>
+    </div>
+  )}
+
+  {/* GLOBAL MODALS (Always mounted and accessible across all screens: Lobby, Loja, Room, Editor) */}
+  <AuthModal
+    isOpen={isAuthModalOpen}
+    onClose={() => setIsAuthModalOpen(false)}
+    currentUser={user}
+    onAuthSuccess={(u) => {
+      setUser(u);
+      showToast(`Conectado como ${u.displayName}`);
+    }}
+  />
+
+  <UploadGLBModal
+    isOpen={isUploadModalOpen}
+    onClose={() => setIsUploadModalOpen(false)}
+    onUploadSuccess={handleUploadSuccess}
+    userDisplayName={user?.displayName || 'Luzenne'}
+    onPublishToStore={handlePublishInventoryItemToStore}
+  />
+
+  <BoundaryModal
+    isOpen={isBoundaryModalOpen}
+    onClose={() => setIsBoundaryModalOpen(false)}
+    boundary={activeRoom.boundary}
+    onSaveBoundary={handleSaveBoundary}
+    roomName={activeRoom.name}
+  />
+
+  <PublishModal
+    isOpen={isPublishModalOpen}
+    onClose={() => setIsPublishModalOpen(false)}
+    room={activeRoom}
+    onGoToVitrine={handleGoToVitrine}
+    onPlaytest={handlePlaytestActiveRoom}
+  />
+</>
+);
 };
 
 export default App;

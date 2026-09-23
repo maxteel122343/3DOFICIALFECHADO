@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import * as THREE from 'three';
-import { AvatarPose, AvatarTransform, Spot } from '../types';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { AvatarPose, AvatarTransform, Spot, RoomEditorState } from '../types';
 
 interface LoungeCanvas3DProps {
   currentPose: AvatarPose;
@@ -11,6 +12,8 @@ interface LoungeCanvas3DProps {
   cameraMode: 'orbit' | 'frontal' | 'closeup' | 'topdown';
   equippedAccessories: string[];
   onUpdateAvatarHeadScreenPos?: (positions: Record<number, { x: number; y: number }>) => void;
+  editorRoom?: RoomEditorState;
+  showSpotArrows?: boolean;
 }
 
 export const LoungeCanvas3D: React.FC<LoungeCanvas3DProps> = ({
@@ -22,6 +25,8 @@ export const LoungeCanvas3D: React.FC<LoungeCanvas3DProps> = ({
   cameraMode,
   equippedAccessories,
   onUpdateAvatarHeadScreenPos,
+  editorRoom,
+  showSpotArrows = true,
 }) => {
   const mountRef = useRef<HTMLDivElement>(null);
   const playerGroupRef = useRef<THREE.Group | null>(null);
@@ -30,6 +35,27 @@ export const LoungeCanvas3D: React.FC<LoungeCanvas3DProps> = ({
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const headPosRef = useRef<Record<number, THREE.Vector3>>({});
   const animationFrameRef = useRef<number>(0);
+  const spotClickablesGroupRef = useRef<THREE.Group | null>(null);
+  const spotAnimatedMeshesRef = useRef<
+    Array<{
+      group: THREE.Group;
+      arrowGroup: THREE.Group;
+      arrowMat: THREE.MeshBasicMaterial;
+      outerRingMat: THREE.MeshBasicMaterial;
+      innerRingMat: THREE.MeshBasicMaterial;
+      spotId: number;
+      baseY: number;
+    }>
+  >([]);
+
+  const currentSpotIdRef = useRef(currentSpotId);
+  currentSpotIdRef.current = currentSpotId;
+
+  const showSpotArrowsRef = useRef(showSpotArrows);
+  showSpotArrowsRef.current = showSpotArrows;
+
+  const onSelectSpotRef = useRef(onSelectSpot);
+  onSelectSpotRef.current = onSelectSpot;
 
   // Mouse orbit interaction
   const isDraggingRef = useRef(false);
@@ -172,76 +198,201 @@ export const LoungeCanvas3D: React.FC<LoungeCanvas3DProps> = ({
     rug.receiveShadow = true;
     scene.add(rug);
 
-    // Metallic Gold Cushion Poufs (3 spots)
-    const puffMaterial = new THREE.MeshStandardMaterial({
-      color: 0xd4af37, // rich metallic gold
-      roughness: 0.32,
-      metalness: 0.85,
-    });
+    // Spot Meshes: Glowing circles (círculos brilhantes) + discreet blinking down-arrow
+    const spotClickablesGroup = new THREE.Group();
+    scene.add(spotClickablesGroup);
+    spotClickablesGroupRef.current = spotClickablesGroup;
+    spotAnimatedMeshesRef.current = [];
 
-    const createPuffMesh = () => {
-      // Rounded gold pouf pillow
+    const createGlowingSpotMesh = (spotId: number, posX: number, posY: number, posZ: number) => {
       const group = new THREE.Group();
-      const puffGeo = new THREE.CylinderGeometry(0.55, 0.65, 0.28, 32);
-      const puff = new THREE.Mesh(puffGeo, puffMaterial);
-      puff.position.y = 0.14;
-      puff.castShadow = true;
-      puff.receiveShadow = true;
-      group.add(puff);
+      group.position.set(posX, posY, posZ);
+      (group as any).userData = { spotId, isSpotInteractive: true };
 
-      // Gold highlight torus ring around top edge
-      const ringGeo = new THREE.TorusGeometry(0.52, 0.04, 16, 32);
-      const ring = new THREE.Mesh(ringGeo, puffMaterial);
-      ring.rotation.x = Math.PI / 2;
-      ring.position.y = 0.26;
-      group.add(ring);
+      // 1. Ground Glowing Disc (Thin circle flat on the floor at Y = 0.015)
+      const discGeo = new THREE.CircleGeometry(0.48, 32);
+      const discMat = new THREE.MeshBasicMaterial({
+        color: 0xd4af37,
+        transparent: true,
+        opacity: 0.28,
+        side: THREE.DoubleSide,
+      });
+      const disc = new THREE.Mesh(discGeo, discMat);
+      disc.rotation.x = -Math.PI / 2;
+      disc.position.y = 0.015;
+      (disc as any).userData = { spotId, isSpotInteractive: true };
+      group.add(disc);
+
+      // 2. Outer Luminous Neon Ring
+      const outerRingGeo = new THREE.RingGeometry(0.42, 0.50, 32);
+      const outerRingMat = new THREE.MeshBasicMaterial({
+        color: 0xffd700,
+        transparent: true,
+        opacity: 0.85,
+        side: THREE.DoubleSide,
+      });
+      const outerRing = new THREE.Mesh(outerRingGeo, outerRingMat);
+      outerRing.rotation.x = -Math.PI / 2;
+      outerRing.position.y = 0.018;
+      (outerRing as any).userData = { spotId, isSpotInteractive: true };
+      group.add(outerRing);
+
+      // 3. Inner Pulsing Halo Ring
+      const innerRingGeo = new THREE.RingGeometry(0.20, 0.25, 32);
+      const innerRingMat = new THREE.MeshBasicMaterial({
+        color: 0xfff0a0,
+        transparent: true,
+        opacity: 0.65,
+        side: THREE.DoubleSide,
+      });
+      const innerRing = new THREE.Mesh(innerRingGeo, innerRingMat);
+      innerRing.rotation.x = -Math.PI / 2;
+      innerRing.position.y = 0.02;
+      (innerRing as any).userData = { spotId, isSpotInteractive: true };
+      group.add(innerRing);
+
+      // 4. Center Beacon Dot
+      const centerDotGeo = new THREE.CircleGeometry(0.07, 16);
+      const centerDotMat = new THREE.MeshBasicMaterial({
+        color: 0xffffff,
+        transparent: true,
+        opacity: 0.9,
+        side: THREE.DoubleSide,
+      });
+      const centerDot = new THREE.Mesh(centerDotGeo, centerDotMat);
+      centerDot.rotation.x = -Math.PI / 2;
+      centerDot.position.y = 0.022;
+      (centerDot as any).userData = { spotId, isSpotInteractive: true };
+      group.add(centerDot);
+
+      // 5. Floating Discreet Blinking Arrow pointing down (seta piscando p baixo)
+      const arrowGroup = new THREE.Group();
+      arrowGroup.name = `spotArrow-${spotId}`;
+      (arrowGroup as any).userData = { spotId, isSpotArrow: true };
+
+      // Inverted Cone (pointing down: tip at bottom)
+      const coneGeo = new THREE.ConeGeometry(0.11, 0.24, 16);
+      const arrowMat = new THREE.MeshBasicMaterial({
+        color: 0xffd700,
+        transparent: true,
+        opacity: 0.85,
+      });
+      const cone = new THREE.Mesh(coneGeo, arrowMat);
+      cone.rotation.x = Math.PI; // Inverted pointing downwards!
+      cone.position.y = 0.82;
+      (cone as any).userData = { spotId, isSpotInteractive: true };
+      arrowGroup.add(cone);
+
+      // Small round base for the arrow
+      const capGeo = new THREE.CylinderGeometry(0.11, 0.11, 0.04, 16);
+      const cap = new THREE.Mesh(capGeo, arrowMat);
+      cap.position.y = 0.94;
+      (cap as any).userData = { spotId, isSpotInteractive: true };
+      arrowGroup.add(cap);
+
+      group.add(arrowGroup);
+      spotClickablesGroup.add(group);
+
+      spotAnimatedMeshesRef.current.push({
+        group,
+        arrowGroup,
+        arrowMat,
+        outerRingMat,
+        innerRingMat,
+        spotId,
+        baseY: 0,
+      });
 
       return group;
     };
 
-    // Spot 1: Left (Maya)
-    const puffLeft = createPuffMesh();
-    puffLeft.position.set(-1.45, 0, 0);
-    scene.add(puffLeft);
+    // Spot Meshes: either from editorRoom spots or default 3 spots
+    if (editorRoom && spots.length > 0) {
+      spots.forEach((spot) => {
+        createGlowingSpotMesh(spot.id, spot.position[0], spot.position[1], spot.position[2]);
+      });
+    } else {
+      // Spot 1: Left (Maya)
+      createGlowingSpotMesh(1, -1.45, 0, 0);
 
-    // Spot 2: Center (Player)
-    const puffCenter = createPuffMesh();
-    puffCenter.position.set(0, 0, 0.2);
-    scene.add(puffCenter);
+      // Spot 2: Center (Player)
+      createGlowingSpotMesh(2, 0, 0, 0.2);
 
-    // Spot 3: Right (Zack)
-    const puffRight = createPuffMesh();
-    puffRight.position.set(1.45, 0, 0);
-    scene.add(puffRight);
+      // Spot 3: Right (Zack)
+      createGlowingSpotMesh(3, 1.45, 0, 0);
+    }
 
-    // Create Avatar Meshes matching Reference Image 1
-    // Left Avatar: Maya (smiling, beige cozy sweater, cream pants)
-    const mayaGroup = createCharacterMesh({
-      skinColor: 0xdfb498,
-      hairColor: 0x2c1d11,
-      clothColor: 0xeee7db, // cream sweater
-      pantsColor: 0xd8cbba, // cream pants
-      hasGlasses: false,
-      hasGoldChain: false,
-      hairStyle: 'female-long',
-    });
-    mayaGroup.position.set(-1.45, 0.28, 0);
-    mayaGroup.rotation.y = THREE.MathUtils.degToRad(20);
-    scene.add(mayaGroup);
+    // If editorRoom has placedObjects, render them!
+    if (editorRoom?.placedObjects && editorRoom.placedObjects.length > 0) {
+      const gltfLoader = new GLTFLoader();
+      editorRoom.placedObjects.forEach((obj) => {
+        const objGroup = new THREE.Group();
+        objGroup.position.set(obj.position[0], obj.position[1], obj.position[2]);
+        objGroup.rotation.set(obj.rotation[0], obj.rotation[1], obj.rotation[2]);
+        objGroup.scale.set(obj.scale[0], obj.scale[1], obj.scale[2]);
 
-    // Right Avatar: Zack (glasses, army green hoodie, gold chain)
-    const zackGroup = createCharacterMesh({
-      skinColor: 0x966848,
-      hairColor: 0x1a1a1a,
-      clothColor: 0x475338, // army green hoodie
-      pantsColor: 0x222429, // dark grey pants
-      hasGlasses: true,
-      hasGoldChain: true,
-      hairStyle: 'afro-short',
-    });
-    zackGroup.position.set(1.45, 0.28, 0);
-    zackGroup.rotation.y = THREE.MathUtils.degToRad(-25);
-    scene.add(zackGroup);
+        if (obj.fileBlobUrl) {
+          gltfLoader.load(obj.fileBlobUrl, (gltf) => {
+            objGroup.add(gltf.scene);
+          });
+        } else if (
+          obj.type === 'avatar' ||
+          obj.isAvatar ||
+          obj.name.toLowerCase().includes('avatar')
+        ) {
+          const avatarMesh = createCharacterMesh({
+            skinColor: 0xcca080,
+            hairColor: 0x1f1b18,
+            clothColor: 0xd4af37,
+            pantsColor: 0x202227,
+            hasGlasses: false,
+            hasGoldChain: true,
+            hairStyle: 'curly',
+          });
+          avatarMesh.position.y = 0.28;
+          objGroup.add(avatarMesh);
+        } else {
+          // Stylish furniture mesh
+          const sofaGeo = new THREE.BoxGeometry(1.8, 0.5, 0.8);
+          const sofaMat = new THREE.MeshStandardMaterial({ color: 0x22242a, roughness: 0.8 });
+          const sofaMesh = new THREE.Mesh(sofaGeo, sofaMat);
+          sofaMesh.position.y = 0.25;
+          objGroup.add(sofaMesh);
+        }
+        scene.add(objGroup);
+      });
+    }
+
+    // Create Avatar Meshes matching Reference Image 1 (only when not custom editorRoom)
+    if (!editorRoom) {
+      // Left Avatar: Maya (smiling, beige cozy sweater, cream pants)
+      const mayaGroup = createCharacterMesh({
+        skinColor: 0xdfb498,
+        hairColor: 0x2c1d11,
+        clothColor: 0xeee7db, // cream sweater
+        pantsColor: 0xd8cbba, // cream pants
+        hasGlasses: false,
+        hasGoldChain: false,
+        hairStyle: 'female-long',
+      });
+      mayaGroup.position.set(-1.45, 0.28, 0);
+      mayaGroup.rotation.y = THREE.MathUtils.degToRad(20);
+      scene.add(mayaGroup);
+
+      // Right Avatar: Zack (glasses, army green hoodie, gold chain)
+      const zackGroup = createCharacterMesh({
+        skinColor: 0x966848,
+        hairColor: 0x1a1a1a,
+        clothColor: 0x475338, // army green hoodie
+        pantsColor: 0x222429, // dark grey pants
+        hasGlasses: true,
+        hasGoldChain: true,
+        hairStyle: 'afro-short',
+      });
+      zackGroup.position.set(1.45, 0.28, 0);
+      zackGroup.rotation.y = THREE.MathUtils.degToRad(-25);
+      scene.add(zackGroup);
+    }
 
     // Center Avatar: Player (Luzenne - black hoodie, gold chain, sunglasses, customized pose)
     const playerGroup = createCharacterMesh({
@@ -305,37 +456,63 @@ export const LoungeCanvas3D: React.FC<LoungeCanvas3DProps> = ({
           const rect = container.getBoundingClientRect();
           const screenPosMap: Record<number, { x: number; y: number }> = {};
 
-          // Update player head position based on current spot and transform
-          const currentSpot = spots.find((s) => s.id === currentSpotId);
-          if (currentSpot && playerGroupRef.current) {
-            const playerWorldHead = new THREE.Vector3(
-              currentSpot.position[0],
-              currentSpot.position[1] + 0.95 * transform.sizeY * transform.scale,
-              currentSpot.position[2]
-            );
-            headPosRef.current[2] = playerWorldHead;
+          // Update player head position based on actual player avatar position in 3D
+          if (playerGroupRef.current) {
+            const playerWorldHead = new THREE.Vector3();
+            playerGroupRef.current.getWorldPosition(playerWorldHead);
+            // Position bubble directly over top of avatar head
+            const headHeight = 1.30 * (transform.scale || 1.0) * (transform.sizeY || 1.0);
+            playerWorldHead.y += headHeight;
+            headPosRef.current[currentSpotIdRef.current] = playerWorldHead;
           }
 
           Object.entries(headPosRef.current).forEach(([idStr, vec3]) => {
             const tempVec = vec3.clone();
             tempVec.project(cam);
-            const screenX = ((tempVec.x + 1) / 2) * rect.width;
-            const screenY = ((-tempVec.y + 1) / 2) * rect.height;
-            screenPosMap[Number(idStr)] = { x: screenX, y: screenY };
+            if (tempVec.z < 1) {
+              const screenX = ((tempVec.x + 1) / 2) * rect.width;
+              const screenY = ((-tempVec.y + 1) / 2) * rect.height;
+              screenPosMap[Number(idStr)] = { x: screenX, y: screenY };
+            }
           });
 
           onUpdateAvatarHeadScreenPos(screenPosMap);
         }
       }
 
+      // Animate spot circles & blinking down-arrows
+      const time = performance.now() * 0.001;
+      spotAnimatedMeshesRef.current.forEach((item) => {
+        const isCurrentSpot = item.spotId === currentSpotIdRef.current;
+        // Show arrow only if not currently occupying this spot and toggle is on
+        const shouldShowArrow = showSpotArrowsRef.current && !isCurrentSpot;
+        item.arrowGroup.visible = shouldShowArrow;
+
+        if (shouldShowArrow) {
+          // Bobbing up and down
+          item.arrowGroup.position.y = item.baseY + Math.sin(time * 3.6) * 0.07;
+          // Discreet blinking/pulsing opacity
+          item.arrowMat.opacity = 0.45 + 0.55 * Math.abs(Math.sin(time * 3.2));
+        }
+
+        // Soft pulse on inner glowing circle
+        item.innerRingMat.opacity = 0.35 + 0.45 * Math.sin(time * 2.8);
+        item.outerRingMat.opacity = isCurrentSpot ? 0.95 : 0.70;
+      });
+
       renderer.render(scene, camera);
     };
 
     animate();
 
-    // Mouse drag for smooth orbit
+    // Direct 3D Raycasting on Click: click on spot circle / arrow to move there
+    let clickStartX = 0;
+    let clickStartY = 0;
+
     const handleMouseDown = (e: MouseEvent) => {
       isDraggingRef.current = true;
+      clickStartX = e.clientX;
+      clickStartY = e.clientY;
       previousMousePositionRef.current = { x: e.clientX, y: e.clientY };
     };
 
@@ -353,8 +530,34 @@ export const LoungeCanvas3D: React.FC<LoungeCanvas3DProps> = ({
       previousMousePositionRef.current = { x: e.clientX, y: e.clientY };
     };
 
-    const handleMouseUp = () => {
+    const handleMouseUp = (e: MouseEvent) => {
       isDraggingRef.current = false;
+
+      // Detect click if drag was minimal (< 5px)
+      const dist = Math.hypot(e.clientX - clickStartX, e.clientY - clickStartY);
+      if (dist < 5 && container && cameraRef.current && spotClickablesGroupRef.current) {
+        const rect = container.getBoundingClientRect();
+        const mouse = new THREE.Vector2(
+          ((e.clientX - rect.left) / rect.width) * 2 - 1,
+          -((e.clientY - rect.top) / rect.height) * 2 + 1
+        );
+        const raycaster = new THREE.Raycaster();
+        raycaster.setFromCamera(mouse, cameraRef.current);
+        const intersects = raycaster.intersectObjects(
+          spotClickablesGroupRef.current.children,
+          true
+        );
+        if (intersects.length > 0) {
+          let hitObj: THREE.Object3D | null = intersects[0].object;
+          while (hitObj && (hitObj as any).userData?.spotId === undefined && hitObj.parent) {
+            hitObj = hitObj.parent;
+          }
+          if (hitObj && (hitObj as any).userData?.spotId !== undefined) {
+            const clickedSpotId = (hitObj as any).userData.spotId;
+            onSelectSpotRef.current(clickedSpotId);
+          }
+        }
+      }
     };
 
     const handleWheel = (e: WheelEvent) => {
@@ -363,6 +566,37 @@ export const LoungeCanvas3D: React.FC<LoungeCanvas3DProps> = ({
         2.2,
         Math.min(7.0, cameraAnglesRef.current.radius + e.deltaY * 0.003)
       );
+    };
+
+    // Keyboard arrow keys navigation to move scenario / orbit room
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (
+        document.activeElement?.tagName === 'INPUT' ||
+        document.activeElement?.tagName === 'TEXTAREA'
+      ) {
+        return;
+      }
+      if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') {
+        e.preventDefault();
+        cameraAnglesRef.current.theta += 0.06;
+      } else if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') {
+        e.preventDefault();
+        cameraAnglesRef.current.theta -= 0.06;
+      } else if (e.key === 'ArrowUp' || e.key === 'w' || e.key === 'W') {
+        e.preventDefault();
+        if (e.shiftKey) {
+          cameraAnglesRef.current.radius = Math.max(2.0, cameraAnglesRef.current.radius - 0.3);
+        } else {
+          cameraAnglesRef.current.phi = Math.min(0.65, cameraAnglesRef.current.phi + 0.04);
+        }
+      } else if (e.key === 'ArrowDown' || e.key === 's' || e.key === 'S') {
+        e.preventDefault();
+        if (e.shiftKey) {
+          cameraAnglesRef.current.radius = Math.min(7.0, cameraAnglesRef.current.radius + 0.3);
+        } else {
+          cameraAnglesRef.current.phi = Math.max(-0.05, cameraAnglesRef.current.phi - 0.04);
+        }
+      }
     };
 
     // Resize observer
@@ -379,6 +613,7 @@ export const LoungeCanvas3D: React.FC<LoungeCanvas3DProps> = ({
     window.addEventListener('mousemove', handleMouseMove);
     window.addEventListener('mouseup', handleMouseUp);
     domEl.addEventListener('wheel', handleWheel, { passive: false });
+    window.addEventListener('keydown', handleKeyDown);
 
     return () => {
       cancelAnimationFrame(animationFrameRef.current);
@@ -387,6 +622,7 @@ export const LoungeCanvas3D: React.FC<LoungeCanvas3DProps> = ({
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
       domEl.removeEventListener('wheel', handleWheel);
+      window.removeEventListener('keydown', handleKeyDown);
       if (container.contains(domEl)) {
         container.removeChild(domEl);
       }
