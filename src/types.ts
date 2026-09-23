@@ -205,3 +205,19 @@ export interface AvatarPoseConfig {
   applied: boolean;
   description?: string;
 }
+
+export type StoreObjectType = 'avatar' | 'item' | 'pose' | 'sala' | 'moveis';
+
+export interface PublishItemPayload {
+  name: string;
+  objectType: StoreObjectType;
+  price: number;
+  hashtags: string[];
+  thumbnailUrl: string;
+  description?: string;
+  rarity?: 'COMUM' | 'RARO' | 'ÉLITE';
+  publishMode: 'simples' | 'avancado';
+  fileBlobUrl?: string;
+  author?: string;
+  metadata?: Record<string, any>;
+}

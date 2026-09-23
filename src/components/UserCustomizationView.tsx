@@ -26,8 +26,10 @@ import {
   AvatarPoseConfig,
   CreatorUser,
   InventoryItem,
+  StoreObjectType,
 } from '../types';
 import { AvatarPedestal3D } from './AvatarPedestal3D';
+import { persistStoreItem } from '../lib/database';
 
 interface UserCustomizationViewProps {
   onBackToLobby: () => void;
@@ -115,6 +117,14 @@ export const UserCustomizationView: React.FC<UserCustomizationViewProps> = ({
   const [newPublishName, setNewPublishName] = useState('');
   const [newPublishCategory, setNewPublishCategory] = useState<'chapeus' | 'casacos' | 'sapatos'>('chapeus');
   const [newPublishPrice, setNewPublishPrice] = useState(0);
+  const [publishMode, setPublishMode] = useState<'simples' | 'avancado'>('simples');
+  const [publishObjectType, setPublishObjectType] = useState<StoreObjectType>('item');
+  const [publishHashtags, setPublishHashtags] = useState('#comunidade, #3d, #luzenne');
+  const [publishThumbnailUrl, setPublishThumbnailUrl] = useState(
+    'https://images.unsplash.com/photo-1551028719-00167b16eac5?auto=format&fit=crop&w=400&q=80'
+  );
+  const [publishRarity, setPublishRarity] = useState<'COMUM' | 'RARO' | 'ÉLITE'>('RARO');
+  const [publishDescription, setPublishDescription] = useState('');
 
   // Filter items in Inventário
   const filteredInventoryItems = customizationItems.filter((item) => {
@@ -172,29 +182,59 @@ export const UserCustomizationView: React.FC<UserCustomizationViewProps> = ({
     showToast(`Item "${item.name}" adquirido com sucesso! Já está no seu Inventário.`);
   };
 
-  const handleCreatePublish = (e: React.FormEvent) => {
+  const handleCreatePublish = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newPublishName.trim()) return;
+
+    const parsedTags = publishHashtags
+      .split(',')
+      .map((t) => t.trim())
+      .filter((t) => t.length > 0)
+      .map((t) => (t.startsWith('#') ? t : `#${t}`));
+
+    const finalTags = parsedTags.length > 0 ? parsedTags : ['#comunidade', '#3d'];
+    const finalPrice = publishMode === 'simples' ? 0 : Number(newPublishPrice) || 0;
+    const finalThumb =
+      publishThumbnailUrl.trim() ||
+      'https://images.unsplash.com/photo-1551028719-00167b16eac5?auto=format&fit=crop&w=400&q=80';
 
     const newItem: Partial<CustomizationItem> = {
       id: `pub-${Date.now()}`,
       code: `#P00${customizationItems.length + 1}`,
       name: newPublishName.trim(),
       category: newPublishCategory,
-      thumb: 'https://images.unsplash.com/photo-1551028719-00167b16eac5?auto=format&fit=crop&w=400&q=80',
+      thumb: finalThumb,
       owned: true,
       equipped: false,
-      price: Number(newPublishPrice) || 0,
-      rarity: 'RARO',
+      price: finalPrice,
+      rarity: publishMode === 'simples' ? 'COMUM' : publishRarity,
       isPublishedByCreator: true,
       author: user?.displayName || 'Luzenne',
-      description: `Item exclusivo criado por ${user?.displayName || 'Luzenne'}.`,
+      description:
+        publishDescription.trim() ||
+        `Item exclusivo criado por ${user?.displayName || 'Luzenne'}.`,
     };
+
+    // Attempt persistent write in Supabase
+    await persistStoreItem(
+      {
+        name: newItem.name!,
+        objectType: publishObjectType,
+        price: finalPrice,
+        hashtags: finalTags,
+        thumbnailUrl: finalThumb,
+        rarity: newItem.rarity,
+        publishMode: publishMode,
+        description: newItem.description,
+        author: user?.displayName || 'Luzenne',
+      },
+      user
+    );
 
     onPublishCustomItem(newItem);
     setShowPublishModal(false);
     setNewPublishName('');
-    showToast(`Item "${newItem.name}" publicado na Loja com sucesso!`);
+    showToast(`"${newItem.name}" publicado na Loja (${publishMode === 'simples' ? 'Modo Simples' : 'Modo Avançado'})!`);
   };
 
   const currentAvatar = storeAvatars.find((a) => a.id === selectedAvatarId) || storeAvatars[0];
@@ -990,16 +1030,17 @@ export const UserCustomizationView: React.FC<UserCustomizationViewProps> = ({
       )}
 
       {/* ========================================================
-          PUBLICAR NOVO ITEM NA LOJA MODAL
+          PUBLICAR NOVO ITEM NA LOJA MODAL (MODO SIMPLES & AVANÇADO)
           ======================================================== */}
       {showPublishModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-md p-4 animate-fade-in font-sans">
-          <div className="relative w-full max-w-md bg-[#14151b] border border-[#d4af37]/60 rounded-2xl p-6 shadow-2xl text-zinc-100">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-md p-4 animate-fade-in font-sans overflow-y-auto">
+          <div className="relative w-full max-w-lg bg-[#14151b] border border-[#d4af37]/60 rounded-2xl p-6 shadow-2xl text-zinc-100 my-auto">
+            {/* Header */}
             <div className="flex items-center justify-between pb-3 border-b border-white/10">
               <div className="flex items-center gap-2 text-[#ffd700]">
-                <Sparkles className="w-4 h-4" />
-                <h3 className="text-sm font-bold text-white uppercase tracking-wider">
-                  Publicar Item na Loja
+                <Sparkles className="w-5 h-5" />
+                <h3 className="text-sm font-extrabold text-white uppercase tracking-wider">
+                  Publicar na Loja (Persistência)
                 </h3>
               </div>
               <button
@@ -1007,62 +1048,226 @@ export const UserCustomizationView: React.FC<UserCustomizationViewProps> = ({
                 onClick={() => setShowPublishModal(false)}
                 className="text-zinc-400 hover:text-white cursor-pointer"
               >
-                <X className="w-4 h-4" />
+                <X className="w-5 h-5" />
               </button>
             </div>
 
-            <form onSubmit={handleCreatePublish} className="mt-4 space-y-3.5">
+            {/* Mode Switcher: Modo Simples vs Modo Avançado */}
+            <div className="grid grid-cols-2 gap-2 mt-4 p-1 bg-black/50 rounded-xl border border-white/10">
+              <button
+                type="button"
+                onClick={() => setPublishMode('simples')}
+                className={`py-2 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                  publishMode === 'simples'
+                    ? 'bg-gradient-to-r from-[#d4af37] to-[#ffd700] text-black shadow-md'
+                    : 'text-zinc-400 hover:text-white'
+                }`}
+              >
+                <span>⚡ Modo Simples</span>
+                <span className="text-[10px] opacity-75">(1 Clique)</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setPublishMode('avancado')}
+                className={`py-2 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                  publishMode === 'avancado'
+                    ? 'bg-gradient-to-r from-[#d4af37] to-[#ffd700] text-black shadow-md'
+                    : 'text-zinc-400 hover:text-white'
+                }`}
+              >
+                <span>⚙️ Modo Avançado</span>
+                <span className="text-[10px] opacity-75">(Customizar)</span>
+              </button>
+            </div>
+
+            <form onSubmit={handleCreatePublish} className="mt-4 space-y-4">
+              {/* Common: Nome do Item */}
               <div>
                 <label className="block text-xs font-semibold text-zinc-300 mb-1">
-                  Nome do Item
+                  Nome do Item <span className="text-red-400">*</span>
                 </label>
                 <input
                   type="text"
                   value={newPublishName}
                   onChange={(e) => setNewPublishName(e.target.value)}
-                  placeholder="Ex: Cartola Victorian Noir, Boina Elegance"
-                  className="w-full bg-[#1b1c24] border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-[#d4af37]"
+                  placeholder="Ex: Cartola Victorian Noir, Boina Elegance, Sofá Velvet"
+                  className="w-full bg-[#1b1c24] border border-white/10 rounded-xl px-3.5 py-2 text-xs text-white outline-none focus:border-[#d4af37]"
                   required
                 />
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-zinc-300 mb-1">
-                  Categoria
-                </label>
-                <div className="grid grid-cols-3 gap-2">
-                  {(['chapeus', 'casacos', 'sapatos'] as const).map((cat) => (
-                    <button
-                      key={cat}
-                      type="button"
-                      onClick={() => setNewPublishCategory(cat)}
-                      className={`py-1.5 rounded-lg text-xs capitalize cursor-pointer border ${
-                        newPublishCategory === cat
-                          ? 'bg-[#d4af37]/20 border-[#d4af37] text-[#ffd700] font-bold'
-                          : 'bg-[#1b1c24] border-white/10 text-zinc-400'
-                      }`}
-                    >
-                      {cat}
-                    </button>
-                  ))}
+              {/* MODO SIMPLES: 1 clique, valores inteligentes */}
+              {publishMode === 'simples' && (
+                <div className="p-3.5 rounded-xl bg-[#1b1d24] border border-[#d4af37]/30 text-xs space-y-2">
+                  <div className="flex items-center gap-2 text-[#ffd700] font-bold">
+                    <Sparkles className="w-4 h-4" />
+                    <span>Publicação Rápida</span>
+                  </div>
+                  <p className="text-zinc-300 text-[11px] leading-relaxed">
+                    No modo simples, basta digitar o nome e clicar em <strong>Publicar Agora</strong>. O item será disponibilizado gratuitamente (0 moedas) na Loja com as hashtags <code>#comunidade</code> e <code>#3d</code>, pronto para ser pego por outros usuários.
+                  </p>
                 </div>
-              </div>
+              )}
 
-              <div>
-                <label className="block text-xs font-semibold text-zinc-300 mb-1">
-                  Preço em Moedas (0 = Grátis para qualquer usuário pegar)
-                </label>
-                <input
-                  type="number"
-                  min="0"
-                  step="50"
-                  value={newPublishPrice}
-                  onChange={(e) => setNewPublishPrice(Number(e.target.value))}
-                  className="w-full bg-[#1b1c24] border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-[#d4af37]"
-                />
-              </div>
+              {/* MODO AVANÇADO: Customização completa */}
+              {publishMode === 'avancado' && (
+                <div className="space-y-3.5 animate-fade-in">
+                  {/* Tipo de Objeto */}
+                  <div>
+                    <label className="block text-xs font-semibold text-zinc-300 mb-1">
+                      Tipo de Objeto
+                    </label>
+                    <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-5 text-[11px]">
+                      {[
+                        { type: 'avatar' as const, label: 'Avatar', icon: '👤' },
+                        { type: 'item' as const, label: 'Item / Roupa', icon: '👔' },
+                        { type: 'pose' as const, label: 'Pose', icon: '🧘' },
+                        { type: 'sala' as const, label: 'Sala / Room', icon: '🏛️' },
+                        { type: 'moveis' as const, label: 'Móveis', icon: '🛋️' },
+                      ].map((item) => (
+                        <button
+                          key={item.type}
+                          type="button"
+                          onClick={() => setPublishObjectType(item.type)}
+                          className={`py-2 px-1 rounded-lg border text-center transition-all cursor-pointer flex flex-col items-center justify-center gap-0.5 ${
+                            publishObjectType === item.type
+                              ? 'bg-[#d4af37]/25 border-[#ffd700] text-[#ffd700] font-bold shadow-sm'
+                              : 'bg-[#1b1c24] border-white/10 text-zinc-400 hover:text-white'
+                          }`}
+                        >
+                          <span className="text-xs">{item.icon}</span>
+                          <span className="truncate w-full">{item.label}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
 
-              <div className="pt-2 flex items-center justify-end gap-2">
+                  {/* Preço em Moedas */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-xs font-semibold text-zinc-300">
+                        Preço em Moedas (🪙)
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => setNewPublishPrice(0)}
+                        className="text-[10px] text-[#ffd700] hover:underline cursor-pointer"
+                      >
+                        Tornar Grátis (0 moedas)
+                      </button>
+                    </div>
+                    <input
+                      type="number"
+                      min="0"
+                      step="50"
+                      value={newPublishPrice}
+                      onChange={(e) => setNewPublishPrice(Number(e.target.value))}
+                      placeholder="0 para Grátis"
+                      className="w-full bg-[#1b1c24] border border-white/10 rounded-xl px-3.5 py-2 text-xs text-white outline-none focus:border-[#d4af37]"
+                    />
+                  </div>
+
+                  {/* Hashtags */}
+                  <div>
+                    <label className="block text-xs font-semibold text-zinc-300 mb-1">
+                      Hashtags (separadas por vírgula)
+                    </label>
+                    <input
+                      type="text"
+                      value={publishHashtags}
+                      onChange={(e) => setPublishHashtags(e.target.value)}
+                      placeholder="#formal, #noite, #luxo, #streetwear"
+                      className="w-full bg-[#1b1c24] border border-white/10 rounded-xl px-3.5 py-2 text-xs text-white outline-none focus:border-[#d4af37]"
+                    />
+                    {/* Quick tag chips */}
+                    <div className="flex flex-wrap gap-1 mt-1.5">
+                      {['#formal', '#noite', '#luxo', '#streetwear', '#moveis', '#decor', '#cyberpunk'].map(
+                        (tag) => (
+                          <button
+                            key={tag}
+                            type="button"
+                            onClick={() => {
+                              if (!publishHashtags.includes(tag)) {
+                                setPublishHashtags((prev) =>
+                                  prev ? `${prev}, ${tag}` : tag
+                                );
+                              }
+                            }}
+                            className="px-2 py-0.5 rounded-md bg-[#222430] hover:bg-[#d4af37]/20 text-[10px] text-zinc-300 hover:text-[#ffd700] border border-white/5 transition-colors cursor-pointer"
+                          >
+                            + {tag}
+                          </button>
+                        )
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Thumbnail URL & Preview */}
+                  <div>
+                    <label className="block text-xs font-semibold text-zinc-300 mb-1">
+                      Thumbnail / Imagem do Item
+                    </label>
+                    <div className="flex items-center gap-3">
+                      <div className="w-12 h-12 rounded-xl overflow-hidden border border-[#d4af37]/50 bg-black/60 flex-shrink-0">
+                        <img
+                          src={publishThumbnailUrl}
+                          alt="Preview"
+                          className="w-full h-full object-cover"
+                          referrerPolicy="no-referrer"
+                        />
+                      </div>
+                      <input
+                        type="url"
+                        value={publishThumbnailUrl}
+                        onChange={(e) => setPublishThumbnailUrl(e.target.value)}
+                        placeholder="https://..."
+                        className="flex-1 bg-[#1b1c24] border border-white/10 rounded-xl px-3.5 py-2 text-xs text-white outline-none focus:border-[#d4af37]"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Raridade */}
+                  <div>
+                    <label className="block text-xs font-semibold text-zinc-300 mb-1">
+                      Raridade do Item
+                    </label>
+                    <div className="grid grid-cols-3 gap-2">
+                      {(['COMUM', 'RARO', 'ÉLITE'] as const).map((r) => (
+                        <button
+                          key={r}
+                          type="button"
+                          onClick={() => setPublishRarity(r)}
+                          className={`py-1.5 rounded-lg text-xs font-bold border transition-all cursor-pointer ${
+                            publishRarity === r
+                              ? 'bg-[#d4af37]/25 border-[#ffd700] text-[#ffd700]'
+                              : 'bg-[#1b1c24] border-white/10 text-zinc-400'
+                          }`}
+                        >
+                          {r}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Descrição */}
+                  <div>
+                    <label className="block text-xs font-semibold text-zinc-300 mb-1">
+                      Descrição (opcional)
+                    </label>
+                    <textarea
+                      rows={2}
+                      value={publishDescription}
+                      onChange={(e) => setPublishDescription(e.target.value)}
+                      placeholder="Conte um pouco sobre o design e estilo deste item..."
+                      className="w-full bg-[#1b1c24] border border-white/10 rounded-xl px-3.5 py-2 text-xs text-white outline-none focus:border-[#d4af37] resize-none"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Action Buttons */}
+              <div className="pt-3 border-t border-white/10 flex items-center justify-end gap-2">
                 <button
                   type="button"
                   onClick={() => setShowPublishModal(false)}
@@ -1072,9 +1277,14 @@ export const UserCustomizationView: React.FC<UserCustomizationViewProps> = ({
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 rounded-xl bg-gradient-to-r from-[#d4af37] to-[#ffd700] text-black font-bold text-xs shadow-md hover:brightness-110 cursor-pointer"
+                  className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-[#d4af37] to-[#ffd700] hover:from-[#e5bd38] hover:to-[#ffe033] text-black font-extrabold text-xs uppercase tracking-wide shadow-lg hover:brightness-110 active:scale-95 transition-all cursor-pointer flex items-center gap-2"
                 >
-                  Publicar na Loja
+                  <span>🚀</span>
+                  <span>
+                    {publishMode === 'simples'
+                      ? 'Publicar Agora'
+                      : 'Publicar com Configurações Avançadas'}
+                  </span>
                 </button>
               </div>
             </form>

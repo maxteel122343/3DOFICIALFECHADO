@@ -1064,6 +1064,7 @@ export const App: React.FC = () => {
     isOpen={isPublishModalOpen}
     onClose={() => setIsPublishModalOpen(false)}
     room={activeRoom}
+    user={user}
     onGoToVitrine={handleGoToVitrine}
     onPlaytest={handlePlaytestActiveRoom}
   />

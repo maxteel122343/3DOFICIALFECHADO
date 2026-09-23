@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { X, Box, Image as ImageIcon, Check, Upload, Sparkles } from 'lucide-react';
-import { InventoryItem } from '../types';
+import { X, Box, Image as ImageIcon, Check, Upload, Sparkles, ArrowLeft } from 'lucide-react';
+import { InventoryItem, StoreObjectType } from '../types';
+import { persistStoreItem } from '../lib/database';
 
 interface UploadGLBModalProps {
   isOpen: boolean;
@@ -27,6 +28,17 @@ export const UploadGLBModal: React.FC<UploadGLBModalProps> = ({
   const [thumbUrl, setThumbUrl] = useState('');
   const [selectedType, setSelectedType] = useState<'Sala' | 'Avatar' | 'Item'>('Item');
   const [uploadedItem, setUploadedItem] = useState<InventoryItem | null>(null);
+
+  // Dual-mode publish state
+  const [isConfiguringPublish, setIsConfiguringPublish] = useState(false);
+  const [publishMode, setPublishMode] = useState<'simples' | 'avancado'>('simples');
+  const [publishName, setPublishName] = useState('');
+  const [publishObjectType, setPublishObjectType] = useState<StoreObjectType>('item');
+  const [publishPrice, setPublishPrice] = useState(0);
+  const [publishHashtags, setPublishHashtags] = useState('#comunidade, #3d, #criador');
+  const [publishThumb, setPublishThumb] = useState('');
+  const [publishRarity, setPublishRarity] = useState<'COMUM' | 'RARO' | 'ÉLITE'>('RARO');
+  const [publishDescription, setPublishDescription] = useState('');
 
   if (!isOpen) return null;
 
@@ -71,12 +83,23 @@ export const UploadGLBModal: React.FC<UploadGLBModalProps> = ({
     };
 
     setUploadedItem(newItem);
+    // Initialize publish fields
+    setPublishName(newItem.displayName);
+    setPublishThumb(newItem.thumbUrl);
+    setPublishObjectType(
+      newItem.type === 'Sala'
+        ? 'sala'
+        : newItem.type === 'Avatar'
+        ? 'avatar'
+        : 'item'
+    );
   };
 
   const handleFinishSaveOnly = () => {
     if (!uploadedItem) return;
     onUploadSuccess(uploadedItem, null);
     setUploadedItem(null);
+    setIsConfiguringPublish(false);
     onClose();
   };
 
@@ -86,6 +109,53 @@ export const UploadGLBModal: React.FC<UploadGLBModalProps> = ({
       insertionPoint ? insertionPoint : ([0, 0, 0] as [number, number, number]);
     onUploadSuccess(uploadedItem, pointToUse);
     setUploadedItem(null);
+    setIsConfiguringPublish(false);
+    onClose();
+  };
+
+  const handleConfirmPublish = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!uploadedItem) return;
+
+    const parsedTags = publishHashtags
+      .split(',')
+      .map((t) => t.trim())
+      .filter((t) => t.length > 0)
+      .map((t) => (t.startsWith('#') ? t : `#${t}`));
+
+    const finalTags = parsedTags.length > 0 ? parsedTags : ['#comunidade', '#3d'];
+    const finalPrice = publishMode === 'simples' ? 0 : Number(publishPrice) || 0;
+    const finalThumb = publishThumb.trim() || uploadedItem.thumbUrl;
+    const finalName = publishName.trim() || uploadedItem.displayName;
+
+    await persistStoreItem(
+      {
+        name: finalName,
+        objectType: publishObjectType,
+        price: finalPrice,
+        hashtags: finalTags,
+        thumbnailUrl: finalThumb,
+        rarity: publishMode === 'simples' ? 'COMUM' : publishRarity,
+        publishMode: publishMode,
+        description:
+          publishDescription.trim() || `Item 3D criado por ${userDisplayName}.`,
+        fileBlobUrl: uploadedItem.fileBlobUrl,
+        author: userDisplayName,
+      },
+      null
+    );
+
+    if (onPublishToStore) {
+      onPublishToStore({
+        ...uploadedItem,
+        displayName: finalName,
+        thumbUrl: finalThumb,
+      });
+    }
+
+    onUploadSuccess(uploadedItem, null);
+    setUploadedItem(null);
+    setIsConfiguringPublish(false);
     onClose();
   };
 
@@ -130,66 +200,309 @@ export const UploadGLBModal: React.FC<UploadGLBModalProps> = ({
         </h1>
 
         {uploadedItem ? (
-          <div className="py-8 flex flex-col items-center justify-center space-y-5">
-            <div className="w-16 h-16 rounded-full border-2 border-[#ffd700] bg-[#ffd700]/10 flex items-center justify-center text-[#ffd700] shadow-[0_0_25px_rgba(255,215,0,0.3)]">
-              <Check className="w-9 h-9" />
-            </div>
-
-            <div className="text-center space-y-1">
-              <p className="text-base font-extrabold text-[#ffd700] uppercase tracking-wider">
-                Upload concluído com sucesso!
-              </p>
-              <p className="text-sm text-[#e8d5b5]">
-                <strong className="text-white">"{uploadedItem.displayName}"</strong> foi adicionado ao seu inventário.
-              </p>
-              <p className="text-xs text-[#e8d5b5]/70 max-w-md mx-auto">
-                Você decide se deseja colocá-lo agora no ambiente 3D ou mantê-lo apenas guardado na sua biblioteca para usar quando quiser.
-              </p>
-            </div>
-
-            {/* Action Buttons: Insert Now vs Publish to Store vs Keep in Library */}
-            <div className="w-full max-w-md flex flex-col gap-3 pt-2">
-              <button
-                type="button"
-                onClick={handleFinishInsertNow}
-                className="w-full py-3 px-4 rounded-xl bg-[#ffd700] hover:bg-amber-300 active:scale-[0.99] text-black font-extrabold text-sm tracking-wide uppercase transition-all shadow-[0_4px_20px_rgba(255,215,0,0.35)] flex items-center justify-center gap-2 cursor-pointer"
-              >
-                <span>➕</span>
-                <span>
-                  {uploadedItem.type === 'Sala'
-                    ? 'Aplicar como Cenário 3D Agora'
-                    : 'Inserir na Cena 3D Agora'}
-                </span>
-              </button>
-
-              {onPublishToStore && (
+          isConfiguringPublish ? (
+            /* DUAL-MODE PUBLISH CONFIGURATION PANEL */
+            <div className="py-4 space-y-4 max-h-[75vh] overflow-y-auto">
+              <div className="flex items-center justify-between pb-3 border-b border-[#d4af37]/30">
                 <button
                   type="button"
-                  onClick={() => {
-                    if (uploadedItem) {
-                      onPublishToStore(uploadedItem);
-                      onUploadSuccess(uploadedItem, null);
-                      setUploadedItem(null);
-                      onClose();
-                    }
-                  }}
-                  className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-[#d4af37]/30 to-[#ffd700]/30 hover:from-[#d4af37]/50 hover:to-[#ffd700]/50 border border-[#ffd700] text-[#ffd700] font-bold text-xs tracking-wide uppercase transition-all flex items-center justify-center gap-2 cursor-pointer shadow-md"
+                  onClick={() => setIsConfiguringPublish(false)}
+                  className="flex items-center gap-1.5 text-xs text-[#d4af37] hover:text-[#ffd700] cursor-pointer"
                 >
-                  <Sparkles className="w-4 h-4 text-[#ffd700]" />
-                  <span>Publicar na Loja (Opção para ser Adquirido)</span>
+                  <ArrowLeft className="w-4 h-4" />
+                  <span>Voltar</span>
                 </button>
-              )}
+                <div className="flex items-center gap-2 text-[#ffd700] font-bold text-xs uppercase tracking-wider">
+                  <Sparkles className="w-4 h-4" />
+                  <span>Publicar na Loja (Persistência)</span>
+                </div>
+                <div className="w-12" />
+              </div>
 
-              <button
-                type="button"
-                onClick={handleFinishSaveOnly}
-                className="w-full py-2.5 px-4 rounded-xl bg-black/40 hover:bg-black/60 border border-[#d4af37]/40 hover:border-[#ffd700] text-[#e8d5b5] font-semibold text-xs tracking-wide uppercase transition-all flex items-center justify-center gap-2 cursor-pointer"
-              >
-                <span>📁</span>
-                <span>Guardar apenas no Inventário (Não Inserir)</span>
-              </button>
+              {/* Mode Toggle: Simples vs Avançado */}
+              <div className="grid grid-cols-2 gap-2 p-1 bg-black/60 rounded-xl border border-[#d4af37]/30">
+                <button
+                  type="button"
+                  onClick={() => setPublishMode('simples')}
+                  className={`py-2 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                    publishMode === 'simples'
+                      ? 'bg-gradient-to-r from-[#d4af37] to-[#ffd700] text-black shadow-md'
+                      : 'text-zinc-400 hover:text-white'
+                  }`}
+                >
+                  <span>⚡ Modo Simples</span>
+                  <span className="text-[10px] opacity-75">(1 Clique)</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setPublishMode('avancado')}
+                  className={`py-2 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                    publishMode === 'avancado'
+                      ? 'bg-gradient-to-r from-[#d4af37] to-[#ffd700] text-black shadow-md'
+                      : 'text-zinc-400 hover:text-white'
+                  }`}
+                >
+                  <span>⚙️ Modo Avançado</span>
+                  <span className="text-[10px] opacity-75">(Customizar)</span>
+                </button>
+              </div>
+
+              <form onSubmit={handleConfirmPublish} className="space-y-4">
+                {/* Nome */}
+                <div>
+                  <label className="block text-xs font-semibold text-[#e8d5b5] mb-1">
+                    Nome do Item na Loja <span className="text-red-400">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={publishName}
+                    onChange={(e) => setPublishName(e.target.value)}
+                    placeholder="Ex: Armadura Dourada, Poltrona Imperial"
+                    className="w-full bg-[#1b1c24] border border-[#d4af37]/30 rounded-xl px-3.5 py-2 text-xs text-white outline-none focus:border-[#ffd700]"
+                    required
+                  />
+                </div>
+
+                {publishMode === 'simples' ? (
+                  <div className="p-4 rounded-xl bg-[#1b1d24] border border-[#d4af37]/30 text-xs space-y-2">
+                    <p className="text-zinc-200 text-xs leading-relaxed">
+                      No <strong>Modo Simples</strong>, o item é publicado instantaneamente com valores automáticos: 
+                      Preço <strong>0 moedas (Grátis)</strong>, hashtags <code>#comunidade</code> e <code>#3d</code>.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-3.5 animate-fade-in">
+                    {/* Tipo de Objeto */}
+                    <div>
+                      <label className="block text-xs font-semibold text-[#e8d5b5] mb-1">
+                        Tipo de Objeto
+                      </label>
+                      <div className="grid grid-cols-3 sm:grid-cols-5 gap-1.5 text-[11px]">
+                        {[
+                          { type: 'avatar' as const, label: 'Avatar', icon: '👤' },
+                          { type: 'item' as const, label: 'Item / Roupa', icon: '👔' },
+                          { type: 'pose' as const, label: 'Pose', icon: '🧘' },
+                          { type: 'sala' as const, label: 'Sala / Room', icon: '🏛️' },
+                          { type: 'moveis' as const, label: 'Móveis', icon: '🛋️' },
+                        ].map((t) => (
+                          <button
+                            key={t.type}
+                            type="button"
+                            onClick={() => setPublishObjectType(t.type)}
+                            className={`py-2 px-1 rounded-lg border text-center transition-all cursor-pointer flex flex-col items-center justify-center gap-0.5 ${
+                              publishObjectType === t.type
+                                ? 'bg-[#d4af37]/30 border-[#ffd700] text-[#ffd700] font-bold shadow-sm'
+                                : 'bg-[#1b1c24] border-white/10 text-zinc-400 hover:text-white'
+                            }`}
+                          >
+                            <span className="text-xs">{t.icon}</span>
+                            <span className="truncate w-full">{t.label}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Preço */}
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="text-xs font-semibold text-[#e8d5b5]">
+                          Preço em Moedas (🪙)
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => setPublishPrice(0)}
+                          className="text-[10px] text-[#ffd700] hover:underline cursor-pointer"
+                        >
+                          Tornar Grátis (0 moedas)
+                        </button>
+                      </div>
+                      <input
+                        type="number"
+                        min="0"
+                        step="50"
+                        value={publishPrice}
+                        onChange={(e) => setPublishPrice(Number(e.target.value))}
+                        placeholder="0 para Grátis"
+                        className="w-full bg-[#1b1c24] border border-[#d4af37]/30 rounded-xl px-3.5 py-2 text-xs text-white outline-none focus:border-[#ffd700]"
+                      />
+                    </div>
+
+                    {/* Hashtags */}
+                    <div>
+                      <label className="block text-xs font-semibold text-[#e8d5b5] mb-1">
+                        Hashtags (separadas por vírgula)
+                      </label>
+                      <input
+                        type="text"
+                        value={publishHashtags}
+                        onChange={(e) => setPublishHashtags(e.target.value)}
+                        placeholder="#formal, #noite, #luxo, #moveis"
+                        className="w-full bg-[#1b1c24] border border-[#d4af37]/30 rounded-xl px-3.5 py-2 text-xs text-white outline-none focus:border-[#ffd700]"
+                      />
+                      <div className="flex flex-wrap gap-1 mt-1.5">
+                        {['#formal', '#noite', '#luxo', '#streetwear', '#moveis', '#decor', '#cyberpunk'].map(
+                          (tag) => (
+                            <button
+                              key={tag}
+                              type="button"
+                              onClick={() => {
+                                if (!publishHashtags.includes(tag)) {
+                                  setPublishHashtags((prev) =>
+                                    prev ? `${prev}, ${tag}` : tag
+                                  );
+                                }
+                              }}
+                              className="px-2 py-0.5 rounded-md bg-[#222430] hover:bg-[#d4af37]/20 text-[10px] text-zinc-300 hover:text-[#ffd700] border border-white/5 transition-colors cursor-pointer"
+                            >
+                              + {tag}
+                            </button>
+                          )
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Thumbnail */}
+                    <div>
+                      <label className="block text-xs font-semibold text-[#e8d5b5] mb-1">
+                        Thumbnail / Capa do Item
+                      </label>
+                      <div className="flex items-center gap-3">
+                        <div className="w-12 h-12 rounded-xl overflow-hidden border border-[#d4af37]/50 bg-black/60 flex-shrink-0">
+                          <img
+                            src={publishThumb || uploadedItem.thumbUrl}
+                            alt="Preview"
+                            className="w-full h-full object-cover"
+                            referrerPolicy="no-referrer"
+                          />
+                        </div>
+                        <input
+                          type="url"
+                          value={publishThumb}
+                          onChange={(e) => setPublishThumb(e.target.value)}
+                          placeholder="https://..."
+                          className="flex-1 bg-[#1b1c24] border border-[#d4af37]/30 rounded-xl px-3.5 py-2 text-xs text-white outline-none focus:border-[#ffd700]"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Raridade */}
+                    <div>
+                      <label className="block text-xs font-semibold text-[#e8d5b5] mb-1">
+                        Raridade
+                      </label>
+                      <div className="grid grid-cols-3 gap-2">
+                        {(['COMUM', 'RARO', 'ÉLITE'] as const).map((r) => (
+                          <button
+                            key={r}
+                            type="button"
+                            onClick={() => setPublishRarity(r)}
+                            className={`py-1.5 rounded-lg text-xs font-bold border transition-all cursor-pointer ${
+                              publishRarity === r
+                                ? 'bg-[#d4af37]/25 border-[#ffd700] text-[#ffd700]'
+                                : 'bg-[#1b1c24] border-white/10 text-zinc-400'
+                            }`}
+                          >
+                            {r}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Descrição */}
+                    <div>
+                      <label className="block text-xs font-semibold text-[#e8d5b5] mb-1">
+                        Descrição (opcional)
+                      </label>
+                      <textarea
+                        rows={2}
+                        value={publishDescription}
+                        onChange={(e) => setPublishDescription(e.target.value)}
+                        placeholder="Detalhes sobre este modelo 3D..."
+                        className="w-full bg-[#1b1c24] border border-[#d4af37]/30 rounded-xl px-3.5 py-2 text-xs text-white outline-none focus:border-[#ffd700] resize-none"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* Submit button */}
+                <div className="pt-2 flex items-center justify-end gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => setIsConfiguringPublish(false)}
+                    className="px-4 py-2 rounded-xl text-xs text-zinc-400 hover:text-white cursor-pointer"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-[#d4af37] to-[#ffd700] hover:from-[#e5bd38] hover:to-[#ffe033] text-black font-extrabold text-xs uppercase tracking-wide shadow-lg hover:brightness-110 active:scale-95 transition-all cursor-pointer flex items-center gap-2"
+                  >
+                    <Sparkles className="w-4 h-4" />
+                    <span>
+                      {publishMode === 'simples'
+                        ? 'Publicar Agora (1 Clique)'
+                        : 'Confirmar Publicação Avançada'}
+                    </span>
+                  </button>
+                </div>
+              </form>
             </div>
-          </div>
+          ) : (
+            <div className="py-8 flex flex-col items-center justify-center space-y-5">
+              <div className="w-16 h-16 rounded-full border-2 border-[#ffd700] bg-[#ffd700]/10 flex items-center justify-center text-[#ffd700] shadow-[0_0_25px_rgba(255,215,0,0.3)]">
+                <Check className="w-9 h-9" />
+              </div>
+
+              <div className="text-center space-y-1">
+                <p className="text-base font-extrabold text-[#ffd700] uppercase tracking-wider">
+                  Upload concluído com sucesso!
+                </p>
+                <p className="text-sm text-[#e8d5b5]">
+                  <strong className="text-white">"{uploadedItem.displayName}"</strong> foi adicionado ao seu inventário.
+                </p>
+                <p className="text-xs text-[#e8d5b5]/70 max-w-md mx-auto">
+                  Você decide se deseja colocá-lo agora no ambiente 3D, publicá-lo na loja ou mantê-lo na sua biblioteca.
+                </p>
+              </div>
+
+              {/* Action Buttons: Insert Now vs Publish to Store vs Keep in Library */}
+              <div className="w-full max-w-md flex flex-col gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={handleFinishInsertNow}
+                  className="w-full py-3 px-4 rounded-xl bg-[#ffd700] hover:bg-amber-300 active:scale-[0.99] text-black font-extrabold text-sm tracking-wide uppercase transition-all shadow-[0_4px_20px_rgba(255,215,0,0.35)] flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <span>➕</span>
+                  <span>
+                    {uploadedItem.type === 'Sala'
+                      ? 'Aplicar como Cenário 3D Agora'
+                      : 'Inserir na Cena 3D Agora'}
+                  </span>
+                </button>
+
+                {onPublishToStore && (
+                  <button
+                    type="button"
+                    onClick={() => setIsConfiguringPublish(true)}
+                    className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-[#d4af37]/30 to-[#ffd700]/30 hover:from-[#d4af37]/50 hover:to-[#ffd700]/50 border border-[#ffd700] text-[#ffd700] font-bold text-xs tracking-wide uppercase transition-all flex items-center justify-center gap-2 cursor-pointer shadow-md"
+                  >
+                    <Sparkles className="w-4 h-4 text-[#ffd700]" />
+                    <span>Publicar na Loja (Modo Simples ou Avançado)</span>
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={handleFinishSaveOnly}
+                  className="w-full py-2.5 px-4 rounded-xl bg-black/40 hover:bg-black/60 border border-[#d4af37]/40 hover:border-[#ffd700] text-[#e8d5b5] font-semibold text-xs tracking-wide uppercase transition-all flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <span>📁</span>
+                  <span>Guardar apenas no Inventário (Não Inserir)</span>
+                </button>
+              </div>
+            </div>
+          )
         ) : (
           <form onSubmit={handleSubmit} className="space-y-6">
             {/* Outer box with fine gold border */}
