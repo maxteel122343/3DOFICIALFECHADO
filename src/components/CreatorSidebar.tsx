@@ -11,6 +11,10 @@ import {
   Sparkles,
   Box,
   Trash2,
+  ChevronLeft,
+  ChevronRight,
+  User,
+  GripHorizontal,
 } from 'lucide-react';
 import { InventoryItem, PlacedObject, SpotItem, SpotType } from '../types';
 
@@ -25,9 +29,15 @@ interface CreatorSidebarProps {
   onInsertAssetToScene: (asset: InventoryItem) => void;
   onAddSpot: (type: SpotType, name: string) => void;
   onRemoveSpot: (spotId: string) => void;
+  onClearAllSpots?: () => void;
+  onRemoveOverlappingSpots?: () => void;
   onSelectSpot: (spot: SpotItem) => void;
   activeSpotId: string | null;
   insertionCursorPoint: [number, number, number] | null;
+  isCollapsed?: boolean;
+  onToggleCollapse?: () => void;
+  customAvatarObjectId?: string | null;
+  onSetCustomAvatarObjectId?: (id: string | null) => void;
 }
 
 export const CreatorSidebar: React.FC<CreatorSidebarProps> = ({
@@ -41,9 +51,15 @@ export const CreatorSidebar: React.FC<CreatorSidebarProps> = ({
   onInsertAssetToScene,
   onAddSpot,
   onRemoveSpot,
+  onClearAllSpots,
+  onRemoveOverlappingSpots,
   onSelectSpot,
   activeSpotId,
   insertionCursorPoint,
+  isCollapsed = false,
+  onToggleCollapse,
+  customAvatarObjectId = null,
+  onSetCustomAvatarObjectId,
 }) => {
   const [activeTab, setActiveTab] = useState<'spots' | 'objects' | 'inventory'>('spots');
   const [isAddingSpot, setIsAddingSpot] = useState(false);
@@ -65,8 +81,74 @@ export const CreatorSidebar: React.FC<CreatorSidebarProps> = ({
     setIsAddingSpot(false);
   };
 
+  // If sidebar is collapsed, render minimal vertical strip
+  if (isCollapsed) {
+    return (
+      <aside className="relative w-12 bg-[#121317]/95 border-r border-[#d4af37]/30 flex flex-col items-center py-3 text-[#e8d5b5] select-none z-20 font-sans shadow-lg gap-4">
+        {/* Expand Button */}
+        <button
+          type="button"
+          onClick={onToggleCollapse}
+          className="w-8 h-8 rounded-lg bg-[#d4af37]/20 border border-[#d4af37] text-[#ffd700] hover:bg-[#d4af37] hover:text-black flex items-center justify-center transition-all cursor-pointer shadow-md"
+          title="Expandir Barra Lateral"
+        >
+          <ChevronRight className="w-5 h-5" />
+        </button>
+
+        {/* Mini Tab Selectors that also expand sidebar */}
+        <div className="flex flex-col gap-2 pt-2 border-t border-[#d4af37]/20 w-full px-1.5 items-center">
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTab('spots');
+              onToggleCollapse?.();
+            }}
+            className="w-8 h-8 rounded-lg flex items-center justify-center text-[#d4af37] hover:bg-[#d4af37]/20 transition-colors cursor-pointer"
+            title={`Spots (${spots.length})`}
+          >
+            <MapPin className="w-4 h-4" />
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTab('objects');
+              onToggleCollapse?.();
+            }}
+            className="w-8 h-8 rounded-lg flex items-center justify-center text-[#d4af37] hover:bg-[#d4af37]/20 transition-colors cursor-pointer"
+            title={`Objetos na sala (${placedObjects.length})`}
+          >
+            <Box className="w-4 h-4" />
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTab('inventory');
+              onToggleCollapse?.();
+            }}
+            className="w-8 h-8 rounded-lg flex items-center justify-center text-[#d4af37] hover:bg-[#d4af37]/20 transition-colors cursor-pointer"
+            title={`Inventário de Itens (${inventory.length})`}
+          >
+            <FolderArchive className="w-4 h-4" />
+          </button>
+        </div>
+      </aside>
+    );
+  }
+
   return (
-    <aside className="w-64 md:w-72 bg-[#121317]/95 border-r border-[#d4af37]/30 flex flex-col h-full text-[#e8d5b5] select-none z-20 font-sans shadow-lg">
+    <aside className="relative w-64 md:w-72 bg-[#121317]/95 border-r border-[#d4af37]/30 flex flex-col h-full text-[#e8d5b5] select-none z-20 font-sans shadow-lg">
+      {/* Minimize Button on edge (indicated by user arrow in Image 1) */}
+      {onToggleCollapse && (
+        <button
+          type="button"
+          onClick={onToggleCollapse}
+          className="absolute -right-3.5 top-14 z-30 w-7 h-7 rounded-full bg-[#121317] border border-[#d4af37] text-[#ffd700] flex items-center justify-center hover:bg-[#d4af37] hover:text-black transition-all shadow-md cursor-pointer"
+          title="Minimizar barra lateral (Expandir visualização 3D)"
+        >
+          <ChevronLeft className="w-4 h-4" />
+        </button>
+      )}
+
       {/* Top Tab Bar: [📍 SPOTS] | [🪑 OBJETOS (n)] | [📦 INVENTÁRIO (n)] */}
       <div className="grid grid-cols-3 border-b border-[#d4af37]/30 bg-[#0e0f13]">
         <button
@@ -117,8 +199,31 @@ export const CreatorSidebar: React.FC<CreatorSidebarProps> = ({
         <div className="flex-1 flex flex-col justify-between overflow-hidden p-3.5">
           <div className="flex-1 overflow-y-auto space-y-2 pr-1 custom-scrollbar">
             <div className="flex items-center justify-between pb-1 text-xs text-[#d4af37]/80">
-              <span className="font-semibold text-[#d4af37]">Spots da room</span>
-              <span className="text-[11px] font-mono">{spots.length} spots</span>
+              <span className="font-semibold text-[#ffd700]">Spots da room ({spots.length})</span>
+              {spots.length > 0 && (
+                <div className="flex items-center gap-1.5">
+                  {onRemoveOverlappingSpots && (
+                    <button
+                      type="button"
+                      onClick={onRemoveOverlappingSpots}
+                      className="px-2 py-0.5 rounded bg-[#1c1f28] hover:bg-[#d4af37] hover:text-black border border-[#d4af37]/40 text-[10px] font-semibold text-[#ffd700] transition-colors cursor-pointer"
+                      title="Elimina spots que estão exatamente no mesmo local ou muito próximos"
+                    >
+                      Remover sobrepostos
+                    </button>
+                  )}
+                  {onClearAllSpots && (
+                    <button
+                      type="button"
+                      onClick={onClearAllSpots}
+                      className="px-1.5 py-0.5 rounded bg-red-950/60 hover:bg-red-900 border border-red-500/40 text-[10px] text-red-300 transition-colors cursor-pointer"
+                      title="Remover todos os spots da cena"
+                    >
+                      Limpar
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
 
             {spots.map((spot) => {
@@ -143,15 +248,26 @@ export const CreatorSidebar: React.FC<CreatorSidebarProps> = ({
                         <Accessibility className="w-3.5 h-3.5" />
                       )}
                     </div>
-                    <span className="text-xs font-medium truncate">{spot.name}</span>
+                    <span className="text-xs font-semibold truncate">{spot.name}</span>
                   </div>
 
                   <div className="flex items-center gap-2 flex-shrink-0">
                     <span className="text-[9px] uppercase font-mono px-1.5 py-0.5 rounded border border-[#d4af37]/30 text-[#d4af37]/80">
                       {spot.type === 'sentar' ? 'SENTAR' : spot.type === 'deitar' ? 'DEITAR' : 'PE'}
                     </span>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onRemoveSpot(spot.id);
+                      }}
+                      className="p-1 rounded text-red-400 hover:text-red-200 hover:bg-red-950/80 transition-colors cursor-pointer"
+                      title={`Excluir spot ${spot.name}`}
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
                     {isSelected && (
-                      <Check className="w-3.5 h-3.5 text-[#d4af37]" />
+                      <Check className="w-3.5 h-3.5 text-[#ffd700]" />
                     )}
                   </div>
                 </div>
@@ -246,11 +362,12 @@ export const CreatorSidebar: React.FC<CreatorSidebarProps> = ({
             ) : (
               placedObjects.map((obj) => {
                 const isSelected = selectedObjectId === obj.id;
+                const isCustomAvatar = customAvatarObjectId === obj.id;
                 return (
                   <div
                     key={obj.id}
                     onClick={() => onSelectObjectId?.(obj.id)}
-                    className={`group flex items-center justify-between px-3 py-2.5 rounded-lg border transition-all cursor-pointer ${
+                    className={`group flex items-center justify-between px-3 py-2 rounded-lg border transition-all cursor-pointer ${
                       isSelected
                         ? 'border-[#d4af37] bg-[#d4af37]/15 text-[#ffd700] shadow-[0_0_12px_rgba(212,175,55,0.2)]'
                         : 'border-[#d4af37]/25 hover:border-[#d4af37]/60 bg-black/40 text-[#e8d5b5]/85'
@@ -267,17 +384,48 @@ export const CreatorSidebar: React.FC<CreatorSidebarProps> = ({
                         )}
                       </div>
                       <div className="min-w-0">
-                        <span className="text-xs font-semibold truncate block">
-                          {obj.name}
-                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-xs font-semibold truncate block">
+                            {obj.name}
+                          </span>
+                          {isCustomAvatar && (
+                            <span className="text-[9px] font-bold bg-[#d4af37] text-black px-1.5 py-0.2 rounded shadow-sm">
+                              Avatar
+                            </span>
+                          )}
+                        </div>
                         <span className="text-[10px] font-mono text-[#d4af37]/75">
                           X: {obj.position[0].toFixed(2)}m · Z: {obj.position[2].toFixed(2)}m
                         </span>
                       </div>
                     </div>
 
-                    {/* Trash Action Icon with tooltip */}
-                    <div className="flex items-center gap-1.5 flex-shrink-0">
+                    {/* Actions: Set as Avatar & Trash Icon */}
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (isCustomAvatar) {
+                            onSetCustomAvatarObjectId?.(null);
+                          } else {
+                            onSetCustomAvatarObjectId?.(obj.id);
+                          }
+                        }}
+                        className={`p-1.5 rounded transition-colors cursor-pointer text-xs ${
+                          isCustomAvatar
+                            ? 'bg-[#d4af37] text-black ring-1 ring-[#ffd700]'
+                            : 'text-[#d4af37]/70 hover:text-[#ffd700] hover:bg-[#d4af37]/20 border border-transparent hover:border-[#d4af37]/40'
+                        }`}
+                        title={
+                          isCustomAvatar
+                            ? 'Remover como avatar ativo'
+                            : 'Definir este item como avatar do visitante (controlado pelos spots)'
+                        }
+                      >
+                        <User className="w-3.5 h-3.5" />
+                      </button>
+
                       <button
                         type="button"
                         onClick={(e) => {
@@ -287,7 +435,7 @@ export const CreatorSidebar: React.FC<CreatorSidebarProps> = ({
                         className="p-1.5 rounded text-red-400 hover:text-red-200 hover:bg-red-950/80 border border-transparent hover:border-red-500/60 transition-colors cursor-pointer"
                         title={`Excluir ${obj.name} da sala`}
                       >
-                        <Trash2 className="w-4 h-4" />
+                        <Trash2 className="w-3.5 h-3.5" />
                       </button>
                     </div>
                   </div>
@@ -297,7 +445,7 @@ export const CreatorSidebar: React.FC<CreatorSidebarProps> = ({
           </div>
 
           <div className="pt-3 border-t border-[#d4af37]/20 text-[10px] text-[#d4af37]/70 leading-tight">
-            Clique no objeto para abrir o gizmo de ajuste fino ou na lixeira para removê-lo.
+            Clique no objeto para abrir o gizmo de ajuste fino, no ícone de avatar para torná-lo o avatar controlado na cena, ou na lixeira para removê-lo.
           </div>
         </div>
       )}
@@ -315,17 +463,19 @@ export const CreatorSidebar: React.FC<CreatorSidebarProps> = ({
             <span>Enviar arquivo (GLB)</span>
           </button>
 
+          {/* Drag & Drop Guidance Banner */}
+          <div className="p-2 mb-2 rounded-lg border border-[#d4af37]/30 bg-[#d4af37]/10 text-[10px] text-[#ffd700] flex items-center gap-1.5">
+            <Sparkles className="w-3.5 h-3.5 flex-shrink-0 text-[#ffd700]" />
+            <span>Dica: Arraste qualquer item diretamente para o chão da maquete 3D!</span>
+          </div>
+
           {/* Insertion Cursor Notification Banner */}
-          {insertionCursorPoint ? (
+          {insertionCursorPoint && (
             <div className="p-2 mb-3 rounded-lg border border-[#d4af37] bg-[#d4af37]/15 text-[11px] text-[#ffd700] flex items-start gap-2">
               <Sparkles className="w-4 h-4 flex-shrink-0 mt-0.5 text-[#ffd700]" />
               <div className="leading-snug">
-                Ponto marcado em [{insertionCursorPoint[0]}, {insertionCursorPoint[2]}]. Clique em um item abaixo para fazê-lo nascer ali!
+                Ponto marcado em [{insertionCursorPoint[0]}, {insertionCursorPoint[2]}]. Clique no botão de inserção abaixo para nascer ali!
               </div>
-            </div>
-          ) : (
-            <div className="p-2 mb-3 rounded-lg border border-[#d4af37]/20 bg-black/40 text-[10px] text-[#e8d5b5]/60 leading-snug">
-              Clique em qualquer local do cenário 3D para marcar um ponto de inserção.
             </div>
           )}
 
@@ -334,7 +484,13 @@ export const CreatorSidebar: React.FC<CreatorSidebarProps> = ({
             {inventory.map((item) => (
               <div
                 key={item.id}
-                className="group p-2.5 rounded-lg border border-[#d4af37]/30 hover:border-[#d4af37] bg-black/40 transition-all flex flex-col gap-2"
+                draggable={true}
+                onDragStart={(e) => {
+                  e.dataTransfer.setData('application/json', JSON.stringify(item));
+                  e.dataTransfer.effectAllowed = 'copy';
+                }}
+                className="group p-2.5 rounded-lg border border-[#d4af37]/30 hover:border-[#ffd700] bg-black/40 hover:bg-black/60 transition-all flex flex-col gap-2 cursor-grab active:cursor-grabbing hover:shadow-[0_0_12px_rgba(212,175,55,0.15)]"
+                title="Clique e arraste para o cenário 3D ou clique no botão abaixo"
               >
                 <div className="flex items-center gap-2.5">
                   <div className="w-12 h-10 rounded border border-[#d4af37]/40 bg-[#16181e] overflow-hidden flex-shrink-0 flex items-center justify-center">
@@ -350,9 +506,12 @@ export const CreatorSidebar: React.FC<CreatorSidebarProps> = ({
                   </div>
 
                   <div className="flex-1 min-w-0">
-                    <h4 className="text-xs font-semibold text-[#e8d5b5] truncate group-hover:text-[#ffd700]">
-                      {item.displayName}
-                    </h4>
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-xs font-semibold text-[#e8d5b5] truncate group-hover:text-[#ffd700]">
+                        {item.displayName}
+                      </h4>
+                      <GripHorizontal className="w-3.5 h-3.5 text-[#d4af37]/40 group-hover:text-[#ffd700]" />
+                    </div>
                     <span className="text-[9px] font-mono px-1.5 py-0.5 rounded border border-[#d4af37]/40 text-[#d4af37] inline-block mt-0.5">
                       {item.type}
                     </span>
@@ -379,7 +538,7 @@ export const CreatorSidebar: React.FC<CreatorSidebarProps> = ({
           </div>
 
           <div className="pt-2 border-t border-[#d4af37]/20 text-[10px] text-[#d4af37]/70">
-            Arquivos do inventário não entram na cena sozinhos.
+            Arraste para soltar no chão ou clique no botão para inserir.
           </div>
         </div>
       )}

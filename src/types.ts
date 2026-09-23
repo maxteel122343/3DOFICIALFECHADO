@@ -22,6 +22,7 @@ export interface PlacedObject {
   color?: string;
   modelType?: 'sofa' | 'table' | 'chair' | 'plant' | 'house' | 'custom_glb';
   fileBlobUrl?: string;
+  rawDimensions?: [number, number, number];
 }
 
 export interface InventoryItem {
@@ -34,6 +35,7 @@ export interface InventoryItem {
   isScenario?: boolean;
   fileBlobUrl?: string;
   modelType?: 'sofa' | 'table' | 'chair' | 'plant' | 'house' | 'custom_glb';
+  rawDimensions?: [number, number, number];
 }
 
 export interface PlayableBoundary {

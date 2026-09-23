@@ -9,6 +9,7 @@ import {
   Menu,
   Sparkles,
   UploadCloud,
+  Box,
 } from 'lucide-react';
 import { RoomData } from '../types';
 
@@ -20,6 +21,7 @@ interface LobbyViewProps {
   onOpenUpload: () => void;
   onOpenShop: () => void;
   onOpenFriends: () => void;
+  onOpenEditor?: () => void;
 }
 
 export const LobbyView: React.FC<LobbyViewProps> = ({
@@ -30,6 +32,7 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
   onOpenUpload,
   onOpenShop,
   onOpenFriends,
+  onOpenEditor,
 }) => {
   const activeRoom = rooms[selectedRoomIndex] || rooms[1];
 
@@ -124,6 +127,20 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
             <div className="w-3.5 h-3.5 rotate-45 bg-purple-400 shadow-[0_0_8px_#c084fc]" />
             <span className="text-xs font-bold text-purple-200">180</span>
           </div>
+
+          {/* Botão Abrir Modo Criador */}
+          {onOpenEditor && (
+            <button
+              type="button"
+              onClick={onOpenEditor}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#d4af37]/20 border border-[#d4af37] text-xs font-bold text-[#ffd700] hover:bg-[#d4af37] hover:text-black transition-all cursor-pointer shadow-md"
+              title="Abrir Modo Criador / Editor 3D"
+            >
+              <Box className="w-4 h-4" />
+              <span className="hidden sm:inline">Modo Criador</span>
+              <span className="sm:hidden">Editor</span>
+            </button>
+          )}
 
           {/* Top Menu Icon */}
           <button

@@ -33,15 +33,16 @@ export const UploadGLBModal: React.FC<UploadGLBModalProps> = ({
     if (e.target.files && e.target.files[0]) {
       const f = e.target.files[0];
       setFile(f);
-      if (!displayName) {
-        setDisplayName(f.name.replace(/\.[^/.]+$/, ''));
-      }
+      // Strictly preserve and set the exact file name (e.g. "man" for "man.glb")
+      const baseName = f.name.replace(/\.[^/.]+$/, '').trim();
+      setDisplayName(baseName);
     }
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!displayName.trim()) return;
+    const finalDisplayName = displayName.trim() || (file ? file.name.replace(/\.[^/.]+$/, '').trim() : 'Objeto 3D');
+    const finalFileName = file ? file.name : `${finalDisplayName.toLowerCase().replace(/\s+/g, '_')}.glb`;
 
     let finalThumb = thumbUrl.trim();
     if (!finalThumb) {
@@ -58,8 +59,8 @@ export const UploadGLBModal: React.FC<UploadGLBModalProps> = ({
 
     const newItem: InventoryItem = {
       id: `inv-${Date.now()}`,
-      fileName: file ? file.name : `${displayName.toLowerCase().replace(/\s+/g, '_')}.glb`,
-      displayName: displayName.trim(),
+      fileName: finalFileName,
+      displayName: finalDisplayName,
       thumbUrl: finalThumb,
       type: selectedType,
       createdAt: 'Agora',
@@ -74,43 +75,43 @@ export const UploadGLBModal: React.FC<UploadGLBModalProps> = ({
         selectedType === 'Item' && autoInsertAtMarkedPoint && insertionPoint
           ? insertionPoint
           : selectedType === 'Item' && autoInsertAtMarkedPoint
-          ? ([0, 0.45, 0] as [number, number, number])
+          ? ([0, 0.0, 0] as [number, number, number])
           : null;
       onUploadSuccess(newItem, pointToUse);
       setIsSuccess(false);
       onClose();
-    }, 600);
+    }, 500);
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-md p-4 animate-fade-in font-sans">
-      <div className="relative w-full max-w-2xl bg-[#121317] border border-[#d4af37]/50 rounded-xl p-6 md:p-8 shadow-[0_10px_40px_rgba(0,0,0,0.9)] text-[#e8d5b5]">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-md p-4 md:p-6 animate-fade-in font-sans">
+      <div className="relative w-full max-w-3xl md:max-w-4xl bg-[#121317] border border-[#d4af37]/60 rounded-2xl p-6 md:p-8 shadow-[0_16px_50px_rgba(0,0,0,0.95)] text-[#e8d5b5]">
         {/* Header HUD: User / Coins / Close */}
-        <div className="flex items-center justify-between pb-5 border-b border-[#d4af37]/20">
-          <div className="flex items-center gap-2.5">
-            <div className="w-7 h-7 rounded-full border border-[#d4af37]/60 flex items-center justify-center text-xs text-[#d4af37]">
+        <div className="flex items-center justify-between pb-4 border-b border-[#d4af37]/30">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-full border border-[#d4af37]/80 flex items-center justify-center text-sm text-[#ffd700] bg-[#1a1c24]">
               👤
             </div>
-            <span className="text-sm font-semibold text-[#e8d5b5]">
+            <span className="text-sm md:text-base font-bold text-[#e8d5b5]">
               {userDisplayName}
             </span>
           </div>
 
           <div className="flex items-center gap-4">
-            <div className="flex items-center gap-1.5 text-xs font-semibold text-[#d4af37]">
-              <span className="w-4 h-4 rounded-full border border-[#d4af37]/60 flex items-center justify-center text-[10px]">
+            <div className="flex items-center gap-1.5 text-xs md:text-sm font-semibold text-[#ffd700]">
+              <span className="w-4 h-4 rounded-full border border-[#d4af37] flex items-center justify-center text-[10px]">
                 $
               </span>
               <span>2.450</span>
             </div>
-            <div className="flex items-center gap-1.5 text-xs font-semibold text-purple-400">
+            <div className="flex items-center gap-1.5 text-xs md:text-sm font-semibold text-purple-400">
               <span className="w-3.5 h-3.5 rotate-45 border border-purple-400" />
               <span>180</span>
             </div>
             <button
               type="button"
               onClick={onClose}
-              className="p-1 text-[#d4af37]/60 hover:text-[#d4af37] transition-colors cursor-pointer ml-2"
+              className="p-1.5 rounded-lg text-[#d4af37]/70 hover:text-[#ffd700] hover:bg-[#d4af37]/15 transition-colors cursor-pointer ml-2"
             >
               <X className="w-5 h-5" />
             </button>
@@ -118,8 +119,8 @@ export const UploadGLBModal: React.FC<UploadGLBModalProps> = ({
         </div>
 
         {/* Title: ENVIAR ARQUIVO 3D */}
-        <h1 className="text-xl font-bold tracking-wide text-[#d4af37] uppercase my-5">
-          ENVIAR ARQUIVO 3D (GLB)
+        <h1 className="text-lg md:text-xl font-extrabold tracking-wide text-[#ffd700] uppercase my-4">
+          ENVIAR ARQUIVO 3D (GLB / GLTF)
         </h1>
 
         {isSuccess ? (
@@ -137,9 +138,9 @@ export const UploadGLBModal: React.FC<UploadGLBModalProps> = ({
         ) : (
           <form onSubmit={handleSubmit} className="space-y-6">
             {/* Outer box with fine gold border */}
-            <div className="border border-[#d4af37]/30 rounded-xl p-5 grid grid-cols-1 md:grid-cols-2 gap-5 bg-black/40">
+            <div className="border border-[#d4af37]/40 rounded-xl p-5 md:p-6 grid grid-cols-1 md:grid-cols-2 gap-6 bg-black/50">
               {/* Left Side: Dotted Dropzone */}
-              <div className="relative border-2 border-dashed border-[#d4af37]/50 rounded-xl p-6 flex flex-col items-center justify-center text-center group cursor-pointer hover:bg-[#d4af37]/5 transition-colors">
+              <div className="relative border-2 border-dashed border-[#d4af37]/60 rounded-xl p-6 flex flex-col items-center justify-center text-center group cursor-pointer hover:bg-[#d4af37]/10 transition-colors">
                 <input
                   type="file"
                   accept=".glb,.gltf"
@@ -148,35 +149,42 @@ export const UploadGLBModal: React.FC<UploadGLBModalProps> = ({
                 />
 
                 {/* Wireframe Cube Icon */}
-                <div className="mb-3 text-[#d4af37] group-hover:scale-105 transition-transform">
-                  <Box className="w-12 h-12 stroke-[1.5]" />
+                <div className="mb-3 text-[#ffd700] group-hover:scale-105 transition-transform">
+                  <Box className="w-14 h-14 stroke-[1.5]" />
                 </div>
 
-                <p className="text-xs font-semibold text-[#e8d5b5] mb-3 px-2 break-all">
-                  {file ? file.name : 'Solte o GLB aqui'}
+                <p className="text-sm font-bold text-[#ffd700] mb-2 px-2 break-all">
+                  {file ? file.name : 'Solte o arquivo GLB aqui'}
                 </p>
 
-                <div className="px-3 py-1.5 rounded border border-[#d4af37]/80 text-[#d4af37] text-xs font-medium bg-[#121317] group-hover:bg-[#d4af37] group-hover:text-black transition-colors flex items-center gap-1.5">
-                  <Upload className="w-3.5 h-3.5" />
-                  <span>{file ? 'Trocar arquivo' : 'Escolher arquivo'}</span>
+                <p className="text-xs text-[#e8d5b5]/70 mb-3">
+                  {file ? `${(file.size / (1024 * 1024)).toFixed(2)} MB` : 'Clique para procurar em seu computador'}
+                </p>
+
+                <div className="px-4 py-2 rounded-lg border border-[#d4af37] text-[#ffd700] text-xs md:text-sm font-bold bg-[#14151a] group-hover:bg-[#d4af37] group-hover:text-black transition-colors flex items-center gap-2 shadow-sm">
+                  <Upload className="w-4 h-4" />
+                  <span>{file ? 'Trocar arquivo selecionado' : 'Selecionar arquivo do disco'}</span>
                 </div>
               </div>
 
               {/* Right Side: Form Inputs */}
-              <div className="space-y-3.5 flex flex-col justify-between">
+              <div className="space-y-4 flex flex-col justify-between">
                 {/* Nome de exibição */}
                 <div>
-                  <label className="block text-xs font-medium text-[#d4af37] mb-1">
-                    Nome de exibição
+                  <label className="block text-xs md:text-sm font-bold text-[#ffd700] mb-1.5">
+                    Nome do arquivo / Objeto na cena
                   </label>
                   <input
                     type="text"
                     required
                     value={displayName}
                     onChange={(e) => setDisplayName(e.target.value)}
-                    placeholder="Ex: Salão Loft Moderno, Sofá Carvão"
-                    className="w-full bg-[#16181e] border border-[#d4af37]/40 rounded-lg px-3 py-2 text-xs text-[#e8d5b5] placeholder:text-[#e8d5b5]/30 outline-none focus:border-[#d4af37]"
+                    placeholder="Ex: man, mesa_moderna, predio"
+                    className="w-full bg-[#181a22] border border-[#d4af37]/50 rounded-lg px-3.5 py-2.5 text-sm font-semibold text-[#ffd700] placeholder:text-[#e8d5b5]/30 outline-none focus:border-[#ffd700] focus:ring-1 focus:ring-[#ffd700]"
                   />
+                  <span className="text-xs text-[#e8d5b5]/60 mt-1 block">
+                    O nome acima será usado fielmente no cenário e na lista de objetos.
+                  </span>
                 </div>
 
                 {/* Imagem de capa */}
@@ -208,8 +216,8 @@ export const UploadGLBModal: React.FC<UploadGLBModalProps> = ({
 
                 {/* Tipo Selector: [ Sala ] [ Avatar ] [ Item ] */}
                 <div>
-                  <label className="block text-xs font-medium text-[#d4af37] mb-1">
-                    Tipo do produto
+                  <label className="block text-xs md:text-sm font-bold text-[#ffd700] mb-1.5">
+                    Tipo do produto 3D
                   </label>
                   <div className="grid grid-cols-3 gap-2">
                     {(['Sala', 'Avatar', 'Item'] as const).map((t) => (
@@ -217,10 +225,10 @@ export const UploadGLBModal: React.FC<UploadGLBModalProps> = ({
                         key={t}
                         type="button"
                         onClick={() => setSelectedType(t)}
-                        className={`py-1.5 text-xs font-semibold rounded-md border transition-all cursor-pointer ${
+                        className={`py-2 text-xs md:text-sm font-bold rounded-lg border transition-all cursor-pointer ${
                           selectedType === t
-                            ? 'bg-[#d4af37] text-black border-[#d4af37] font-bold shadow-sm'
-                            : 'bg-black/30 text-[#e8d5b5]/80 border-[#d4af37]/30 hover:border-[#d4af37]'
+                            ? 'bg-[#d4af37] text-black border-[#ffd700] shadow-md'
+                            : 'border-[#d4af37]/40 text-[#e8d5b5]/80 hover:border-[#ffd700] bg-[#161820]'
                         }`}
                       >
                         {t}
@@ -228,7 +236,7 @@ export const UploadGLBModal: React.FC<UploadGLBModalProps> = ({
                     ))}
                   </div>
 
-                  <p className="text-[10px] text-[#d4af37]/75 mt-1.5 leading-relaxed">
+                  <p className="text-xs text-[#d4af37]/80 mt-1.5 leading-relaxed">
                     {selectedType === 'Sala'
                       ? 'Sala: carrega como o cenário 3D da room (paredes, arquitetura e piso).'
                       : selectedType === 'Avatar'
@@ -238,21 +246,21 @@ export const UploadGLBModal: React.FC<UploadGLBModalProps> = ({
 
                   {/* Insertion point indicator for Items */}
                   {selectedType === 'Item' && (
-                    <div className="mt-2.5 p-2 rounded border border-[#d4af37]/40 bg-[#d4af37]/10 text-xs">
+                    <div className="mt-2.5 p-2.5 rounded-lg border border-[#d4af37]/50 bg-[#d4af37]/10 text-xs">
                       {insertionPoint ? (
                         <label className="flex items-center gap-2 cursor-pointer text-[#ffd700]">
                           <input
                             type="checkbox"
                             checked={autoInsertAtMarkedPoint}
                             onChange={(e) => setAutoInsertAtMarkedPoint(e.target.checked)}
-                            className="accent-[#d4af37] w-3.5 h-3.5 rounded"
+                            className="accent-[#d4af37] w-4 h-4 rounded"
                           />
-                          <span className="font-semibold text-[11px]">
+                          <span className="font-bold text-xs">
                             Inserir no ponto marcado [X: {insertionPoint[0]}m, Z: {insertionPoint[2]}m]
                           </span>
                         </label>
                       ) : (
-                        <span className="text-[11px] text-[#e8d5b5]/70 block">
+                        <span className="text-xs text-[#e8d5b5]/80 block">
                           📍 O item nascerá no centro da sala. (Você também pode clicar no piso antes de enviar para marcar um ponto).
                         </span>
                       )}
@@ -265,9 +273,9 @@ export const UploadGLBModal: React.FC<UploadGLBModalProps> = ({
             {/* Bottom Submit Button */}
             <button
               type="submit"
-              className="w-full py-2.5 rounded-lg bg-[#d4af37] hover:bg-[#e2bd44] active:scale-[0.99] text-black text-xs font-bold tracking-wider uppercase transition-all cursor-pointer shadow-md flex items-center justify-center gap-2"
+              className="w-full py-3 rounded-xl bg-[#d4af37] hover:bg-[#e2bd44] active:scale-[0.99] text-black text-sm font-extrabold tracking-wider uppercase transition-all cursor-pointer shadow-lg flex items-center justify-center gap-2"
             >
-              <Upload className="w-4 h-4" />
+              <Upload className="w-5 h-5" />
               <span>
                 {selectedType === 'Item' && autoInsertAtMarkedPoint
                   ? insertionPoint

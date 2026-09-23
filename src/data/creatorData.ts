@@ -98,9 +98,9 @@ export const INITIAL_ROOMS: RoomEditorState[] = [
       },
     ],
     boundary: {
-      x: 5.0,
+      x: 6.0,
       y: 2.8,
-      z: 6.5,
+      z: 8.0,
       isConfirmed: true,
     },
     isPublished: false,
@@ -121,8 +121,8 @@ export const INITIAL_ROOMS: RoomEditorState[] = [
     ],
     boundary: {
       x: 6.0,
-      y: 3.0,
-      z: 7.0,
+      y: 2.8,
+      z: 8.0,
       isConfirmed: false,
     },
     isPublished: false,

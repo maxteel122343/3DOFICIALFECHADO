@@ -6,7 +6,10 @@ import { UploadGLBModal } from './components/UploadGLBModal';
 import { BoundaryModal } from './components/BoundaryModal';
 import { AuthModal } from './components/AuthModal';
 import { PublishModal } from './components/PublishModal';
+import { LobbyView } from './components/LobbyView';
+import { RoomView } from './components/RoomView';
 import { INITIAL_INVENTORY, INITIAL_ROOMS } from './data/creatorData';
+import { INITIAL_ROOMS as INITIAL_LOBBY_ROOMS } from './data/initialData';
 import {
   RoomEditorState,
   InventoryItem,
@@ -15,11 +18,17 @@ import {
   SpotType,
   PlayableBoundary,
   CreatorUser,
+  RoomData,
 } from './types';
 import { supabase } from './lib/supabase';
 import { Lightbulb, Sparkles, Maximize2, Minimize2 } from 'lucide-react';
 
 export const App: React.FC = () => {
+  // Navigation State between Editor, Rooms Lobby, and Social Room
+  const [currentScreen, setCurrentScreen] = useState<'editor' | 'lobby' | 'room'>('editor');
+  const [lobbyRoomIndex, setLobbyRoomIndex] = useState<number>(1);
+  const [selectedLobbyRoom, setSelectedLobbyRoom] = useState<RoomData | null>(null);
+
   // Rooms State (Room A | Room B | + Nova room)
   const [rooms, setRooms] = useState<RoomEditorState[]>(() => {
     const saved = localStorage.getItem('3d_social_creator_rooms');
@@ -81,6 +90,8 @@ export const App: React.FC = () => {
   // Selection & 3D Editing State
   const [selectedSpotId, setSelectedSpotId] = useState<string | null>('spot-2');
   const [selectedObjectId, setSelectedObjectId] = useState<string | null>(null);
+  const [customAvatarObjectId, setCustomAvatarObjectId] = useState<string | null>(null);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
   const [activeGizmoMode, setActiveGizmoMode] = useState<GizmoEditMode>('mover');
   const [insertionCursorPoint, setInsertionCursorPoint] = useState<[number, number, number] | null>(null);
   const [avatarCurrentSpotId, setAvatarCurrentSpotId] = useState<string | null>('spot-2');
@@ -152,9 +163,9 @@ export const App: React.FC = () => {
         },
       ],
       boundary: {
-        x: 5.4,
+        x: 6.0,
         y: 2.8,
-        z: 6.2,
+        z: 8.0,
         isConfirmed: false,
       },
       isPublished: false,
@@ -200,7 +211,7 @@ export const App: React.FC = () => {
         assetId: item.id,
         name: item.displayName,
         type: 'movel' as const,
-        position: [targetPoint[0], 0.45, targetPoint[2]] as [number, number, number],
+        position: [targetPoint[0], 0.0, targetPoint[2]] as [number, number, number],
         rotation: [0, 0, 0] as [number, number, number],
         scale: [1, 1, 1] as [number, number, number],
         modelType: (item.modelType || 'custom_glb') as any,
@@ -243,8 +254,8 @@ export const App: React.FC = () => {
     }
 
     const spawnPoint: [number, number, number] = insertionCursorPoint
-      ? [...insertionCursorPoint]
-      : [0, 0.4, 0];
+      ? [insertionCursorPoint[0], 0.0, insertionCursorPoint[2]]
+      : [0, 0.0, 0];
 
     const newObjId = `obj-${Date.now()}`;
     const newPlacedObject = {
@@ -369,6 +380,41 @@ export const App: React.FC = () => {
     showToast('Spot removido da cena.');
   };
 
+  const handleClearAllSpots = () => {
+    setRooms((prev) =>
+      prev.map((r) => (r.id === activeRoomId ? { ...r, spots: [] } : r))
+    );
+    setSelectedSpotId(null);
+    showToast('Todos os spots foram removidos da cena.');
+  };
+
+  const handleRemoveOverlappingSpots = () => {
+    setRooms((prev) =>
+      prev.map((r) => {
+        if (r.id !== activeRoomId) return r;
+        const keptSpots: SpotItem[] = [];
+        const threshold = 0.45; // meters distance to consider overlapping
+        for (const spot of r.spots) {
+          const isOverlapping = keptSpots.some((k) => {
+            const dx = k.position[0] - spot.position[0];
+            const dz = k.position[2] - spot.position[2];
+            return Math.sqrt(dx * dx + dz * dz) < threshold;
+          });
+          if (!isOverlapping) {
+            keptSpots.push(spot);
+          }
+        }
+        const removedCount = r.spots.length - keptSpots.length;
+        if (removedCount > 0) {
+          showToast(`${removedCount} spot(s) sobreposto(s) removido(s)!`);
+        } else {
+          showToast('Nenhum spot sobreposto encontrado.');
+        }
+        return { ...r, spots: keptSpots };
+      })
+    );
+  };
+
   const handleUpdateSpotPosition = (id: string, position: [number, number, number]) => {
     setRooms((prev) =>
       prev.map((r) =>
@@ -398,7 +444,77 @@ export const App: React.FC = () => {
   const handleAvatarTeleport = (spotId: string) => {
     setAvatarCurrentSpotId(spotId);
     const spot = activeRoom.spots.find((s) => s.id === spotId);
-    showToast(`Avatar teleportado para o spot "${spot?.name || 'Spot'}"!`);
+    if (!spot) return;
+
+    if (customAvatarObjectId) {
+      // Reposition the custom avatar object onto the clicked spot
+      const spotAngleRad = (spot.rotation * Math.PI) / 180;
+      setRooms((prev) =>
+        prev.map((r) =>
+          r.id === activeRoomId
+            ? {
+                ...r,
+                placedObjects: r.placedObjects.map((obj) =>
+                  obj.id === customAvatarObjectId
+                    ? {
+                        ...obj,
+                        position: [spot.position[0], spot.position[1], spot.position[2]],
+                        rotation: [obj.rotation[0], spotAngleRad, obj.rotation[2]],
+                      }
+                    : obj
+                ),
+              }
+            : r
+        )
+      );
+      showToast(`Item Avatar controlado movido para o spot "${spot.name || 'Spot'}"!`);
+    } else {
+      showToast(`Avatar teleportado para o spot "${spot.name || 'Spot'}"!`);
+    }
+  };
+
+  // Drag and drop asset from inventory directly into 3D scene floor
+  const handleDropItemOnScene = (item: InventoryItem, coords: [number, number, number]) => {
+    if (item.type === 'Sala') {
+      setRooms((prev) =>
+        prev.map((r) =>
+          r.id === activeRoomId
+            ? {
+                ...r,
+                sceneAssetBlobUrl: item.fileBlobUrl || undefined,
+                sceneAssetId: item.id,
+              }
+            : r
+        )
+      );
+      showToast(`Cenário 3D "${item.displayName}" carregado na cena!`);
+      return;
+    }
+
+    const newObjId = `obj-${Date.now()}`;
+    const newPlacedObject = {
+      id: newObjId,
+      assetId: item.id,
+      name: item.displayName,
+      type: 'movel' as const,
+      position: coords,
+      rotation: [0, 0, 0] as [number, number, number],
+      scale: [1, 1, 1] as [number, number, number],
+      modelType: (item.modelType || 'custom_glb') as any,
+      fileBlobUrl: item.fileBlobUrl,
+    };
+
+    setRooms((prev) =>
+      prev.map((r) =>
+        r.id === activeRoomId
+          ? { ...r, placedObjects: [...r.placedObjects, newPlacedObject] }
+          : r
+      )
+    );
+
+    setSelectedObjectId(newObjId);
+    setSelectedSpotId(null);
+    showToast(`"${item.displayName}" inserido diretamente na posição [${coords[0]}, ${coords[2]}]!`);
   };
 
   // Boundary save
@@ -419,6 +535,37 @@ export const App: React.FC = () => {
     setIsPublishModalOpen(true);
   };
 
+  // Screen 1: Lobby View (Portals & Social Hall)
+  if (currentScreen === 'lobby') {
+    return (
+      <LobbyView
+        rooms={INITIAL_LOBBY_ROOMS}
+        selectedRoomIndex={lobbyRoomIndex}
+        onSelectRoomIndex={setLobbyRoomIndex}
+        onEnterRoom={(room) => {
+          setSelectedLobbyRoom(room);
+          setCurrentScreen('room');
+        }}
+        onOpenUpload={() => setIsUploadModalOpen(true)}
+        onOpenShop={() => {}}
+        onOpenFriends={() => {}}
+        onOpenEditor={() => setCurrentScreen('editor')}
+      />
+    );
+  }
+
+  // Screen 2: Social Room View (Avatar Lounge with Poses, Chat & Gizmo)
+  if (currentScreen === 'room' && selectedLobbyRoom) {
+    return (
+      <RoomView
+        room={selectedLobbyRoom}
+        onExitToLobby={() => setCurrentScreen('lobby')}
+        equippedAccessories={[]}
+      />
+    );
+  }
+
+  // Screen 3: Creator Editor 3D Mode
   return (
     <div className="w-screen h-screen bg-[#0a0b0d] text-[#e0cfb3] font-sans flex items-center justify-center p-0 md:p-3 overflow-hidden select-none">
       {/* 16:9 Mockup Frame with Fine Gold Border matching the new visual identity */}
@@ -449,6 +596,7 @@ export const App: React.FC = () => {
           onToggleShowSpots={() => setShowSpots(!showSpots)}
           lockSpots={lockSpots}
           onToggleLockSpots={() => setLockSpots(!lockSpots)}
+          onExitEditor={() => setCurrentScreen('lobby')}
         />
 
         {/* MAIN STUDIO WORKSPACE: Left Sidebar (Spots / Inventário) + 3D Center Editor Canvas */}
@@ -468,6 +616,8 @@ export const App: React.FC = () => {
             onInsertAssetToScene={handleInsertAssetToScene}
             onAddSpot={handleAddSpot}
             onRemoveSpot={handleRemoveSpot}
+            onClearAllSpots={handleClearAllSpots}
+            onRemoveOverlappingSpots={handleRemoveOverlappingSpots}
             onSelectSpot={(spot) => {
               setSelectedSpotId(spot.id);
               setSelectedObjectId(null);
@@ -477,6 +627,10 @@ export const App: React.FC = () => {
             }}
             activeSpotId={selectedSpotId}
             insertionCursorPoint={insertionCursorPoint}
+            isCollapsed={isSidebarCollapsed}
+            onToggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+            customAvatarObjectId={customAvatarObjectId}
+            onSetCustomAvatarObjectId={setCustomAvatarObjectId}
           />
 
           {/* 3D Scene Viewport */}
@@ -500,8 +654,11 @@ export const App: React.FC = () => {
               onUpdateSpotPosition={handleUpdateSpotPosition}
               onUpdateSpotRotation={handleUpdateSpotRotation}
               onRemoveSpot={handleRemoveSpot}
+              onClearAllSpots={handleClearAllSpots}
+              onRemoveOverlappingSpots={handleRemoveOverlappingSpots}
               onUpdateObjectTransform={handleUpdateObjectTransform}
               onRemoveObject={handleRemoveObject}
+              onUpdateBoundary={handleSaveBoundary}
               onSceneClickInsertionPoint={(point) => {
                 setInsertionCursorPoint(point);
               }}
@@ -516,6 +673,9 @@ export const App: React.FC = () => {
               onChangeGizmoMode={setActiveGizmoMode}
               avatarCurrentSpotId={avatarCurrentSpotId}
               onAvatarTeleport={handleAvatarTeleport}
+              customAvatarObjectId={customAvatarObjectId}
+              onSetCustomAvatarObjectId={setCustomAvatarObjectId}
+              onDropItemOnScene={handleDropItemOnScene}
             />
 
             {/* Top-Right Aspect Ratio Toggle */}

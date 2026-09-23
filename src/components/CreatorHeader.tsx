@@ -11,6 +11,7 @@ import {
   MapPin,
   Lock,
   Unlock,
+  LogOut,
 } from 'lucide-react';
 import { RoomEditorState, CreatorUser } from '../types';
 
@@ -31,6 +32,7 @@ interface CreatorHeaderProps {
   onToggleShowSpots: () => void;
   lockSpots: boolean;
   onToggleLockSpots: () => void;
+  onExitEditor?: () => void;
 }
 
 export const CreatorHeader: React.FC<CreatorHeaderProps> = ({
@@ -50,6 +52,7 @@ export const CreatorHeader: React.FC<CreatorHeaderProps> = ({
   onToggleShowSpots,
   lockSpots,
   onToggleLockSpots,
+  onExitEditor,
 }) => {
   const activeRoom = rooms.find((r) => r.id === activeRoomId) || rooms[0];
 
@@ -222,6 +225,20 @@ export const CreatorHeader: React.FC<CreatorHeaderProps> = ({
           <Upload className="w-3.5 h-3.5 text-[#d4af37]" />
           <span className="uppercase tracking-wider text-[11px]">Publicar na vitrine</span>
         </button>
+
+        {/* SAIR DO MODO EDITOR (Retorna para a tela de Rooms / Lobby) */}
+        {onExitEditor && (
+          <button
+            type="button"
+            onClick={onExitEditor}
+            className="px-3 py-1 rounded border border-amber-500/70 hover:border-amber-400 bg-amber-950/60 hover:bg-amber-900/80 text-xs font-semibold text-amber-200 hover:text-white transition-all flex items-center gap-1.5 cursor-pointer shadow-sm"
+            title="Sair do modo editor e voltar para a tela de rooms"
+          >
+            <LogOut className="w-3.5 h-3.5 text-amber-400" />
+            <span className="hidden sm:inline">Sair do Editor</span>
+            <span className="sm:hidden">Sair</span>
+          </button>
+        )}
       </div>
     </header>
   );

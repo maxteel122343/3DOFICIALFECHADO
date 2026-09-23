@@ -17,16 +17,16 @@ export const BoundaryModal: React.FC<BoundaryModalProps> = ({
   onSaveBoundary,
   roomName,
 }) => {
-  const [x, setX] = useState<number>(boundary.x || 5.0);
+  const [x, setX] = useState<number>(boundary.x || 6.0);
   const [y, setY] = useState<number>(boundary.y || 2.8);
-  const [z, setZ] = useState<number>(boundary.z || 6.5);
+  const [z, setZ] = useState<number>(boundary.z || 8.0);
 
   if (!isOpen) return null;
 
   const handleReset = () => {
-    setX(5.0);
+    setX(6.0);
     setY(2.8);
-    setZ(6.5);
+    setZ(8.0);
   };
 
   const handleConfirm = () => {
