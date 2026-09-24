@@ -166,13 +166,13 @@ export interface ShopItem {
   owned?: boolean;
 }
 
-export type CustomizationCategory = 'chapeus' | 'casacos' | 'sapatos' | 'publicados' | 'todos';
+export type CustomizationCategory = 'chapeus' | 'casacos' | 'sapatos' | 'avatares' | 'publicados' | 'todos';
 
 export interface CustomizationItem {
   id: string;
   code: string; // e.g. #H001, #C001, #S001
   name: string;
-  category: 'chapeus' | 'casacos' | 'sapatos' | 'publicados' | 'outros';
+  category: 'chapeus' | 'casacos' | 'sapatos' | 'avatares' | 'publicados' | 'outros';
   thumb: string;
   owned: boolean;
   equipped: boolean;
@@ -182,6 +182,7 @@ export interface CustomizationItem {
   isPublishedByCreator?: boolean;
   author?: string;
   fileBlobUrl?: string;
+  isAvatar?: boolean;
 }
 
 export interface StoreAvatar {

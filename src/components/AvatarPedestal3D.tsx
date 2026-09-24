@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import * as THREE from 'three';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { CustomizationItem, AvatarPoseConfig } from '../types';
 
 interface AvatarPedestal3DProps {
@@ -18,6 +19,7 @@ interface AvatarPedestal3DProps {
   onUpdateElevation?: (elevY: number) => void;
   onUpdateScale?: (scale: number) => void;
   onUpdatePan?: (x: number, y: number) => void;
+  onRegisterSnapshotTaker?: (taker: () => string | null) => void;
 }
 
 export const AvatarPedestal3D: React.FC<AvatarPedestal3DProps> = ({
@@ -27,6 +29,7 @@ export const AvatarPedestal3D: React.FC<AvatarPedestal3DProps> = ({
   avatarName = 'Noite de Gala',
   fineAdjustments,
   onUpdateRotation,
+  onRegisterSnapshotTaker,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
@@ -63,7 +66,12 @@ export const AvatarPedestal3D: React.FC<AvatarPedestal3DProps> = ({
     cameraRef.current = camera;
 
     // Renderer
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
+    const renderer = new THREE.WebGLRenderer({
+      antialias: true,
+      alpha: true,
+      powerPreference: 'high-performance',
+      preserveDrawingBuffer: true,
+    });
     renderer.setSize(width, height);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.shadowMap.enabled = true;
@@ -72,6 +80,18 @@ export const AvatarPedestal3D: React.FC<AvatarPedestal3DProps> = ({
     renderer.toneMappingExposure = 1.15;
     container.appendChild(renderer.domElement);
     rendererRef.current = renderer;
+
+    if (onRegisterSnapshotTaker) {
+      onRegisterSnapshotTaker(() => {
+        try {
+          if (!rendererRef.current) return null;
+          return rendererRef.current.domElement.toDataURL('image/png');
+        } catch (err) {
+          console.error('Failed to capture snapshot from WebGL canvas:', err);
+          return null;
+        }
+      });
+    }
 
     // Lighting (Dark Studio Lighting)
     // 1. Soft Ambient
@@ -254,6 +274,42 @@ export const AvatarPedestal3D: React.FC<AvatarPedestal3DProps> = ({
       const child = group.children[0];
       group.remove(child);
       if ((child as any).geometry) (child as any).geometry.dispose();
+    }
+
+    if (avatarModelUrl) {
+      const loader = new GLTFLoader();
+      loader.load(
+        avatarModelUrl,
+        (gltf) => {
+          const customModel = gltf.scene;
+          const box = new THREE.Box3().setFromObject(customModel);
+          const size = box.getSize(new THREE.Vector3());
+          const targetHeight = 1.75;
+          const s = targetHeight / Math.max(0.1, size.y);
+          customModel.scale.set(s, s, s);
+
+          const scaledBox = new THREE.Box3().setFromObject(customModel);
+          const center = scaledBox.getCenter(new THREE.Vector3());
+          customModel.position.x = -center.x;
+          customModel.position.z = -center.z;
+          customModel.position.y = 0.12 - scaledBox.min.y;
+
+          customModel.traverse((node) => {
+            if ((node as THREE.Mesh).isMesh) {
+              node.castShadow = true;
+              node.receiveShadow = true;
+            }
+          });
+
+          group.add(customModel);
+        },
+        undefined,
+        () => {
+          // Fallback if loading failed
+          console.warn('Could not load custom avatar GLB model, falling back to base model');
+        }
+      );
+      return;
     }
 
     // Check equipped items

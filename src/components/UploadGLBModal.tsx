@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { X, Box, Image as ImageIcon, Check, Upload, Sparkles, ArrowLeft } from 'lucide-react';
+import { X, Box, Image as ImageIcon, Check, Upload, Sparkles, ArrowLeft, Tag, Pencil } from 'lucide-react';
 import { InventoryItem, StoreObjectType } from '../types';
 import { persistStoreItem } from '../lib/database';
+import { saveGlbFile } from '../lib/storageIndexedDB';
 
 interface UploadGLBModalProps {
   isOpen: boolean;
@@ -46,9 +47,11 @@ export const UploadGLBModal: React.FC<UploadGLBModalProps> = ({
     if (e.target.files && e.target.files[0]) {
       const f = e.target.files[0];
       setFile(f);
-      // Strictly preserve and set the exact file name (e.g. "man" for "man.glb")
+      // Clean up base name for readability while letting user customize it freely
       const baseName = f.name.replace(/\.[^/.]+$/, '').trim();
-      setDisplayName(baseName);
+      const readable = baseName.replace(/[_-]+/g, ' ').trim();
+      const formatted = readable.charAt(0).toUpperCase() + readable.slice(1);
+      setDisplayName(formatted || baseName);
     }
   };
 
@@ -81,6 +84,11 @@ export const UploadGLBModal: React.FC<UploadGLBModalProps> = ({
       fileBlobUrl: blobUrl,
       modelType: 'custom_glb',
     };
+
+    // Guarantee persistence of the actual binary GLB in IndexedDB
+    if (file) {
+      saveGlbFile(newItem.id, file);
+    }
 
     setUploadedItem(newItem);
     // Initialize publish fields
@@ -484,11 +492,17 @@ export const UploadGLBModal: React.FC<UploadGLBModalProps> = ({
                 {onPublishToStore && (
                   <button
                     type="button"
-                    onClick={() => setIsConfiguringPublish(true)}
+                    onClick={() => {
+                      onUploadSuccess(uploadedItem, null);
+                      onPublishToStore(uploadedItem);
+                      setUploadedItem(null);
+                      setIsConfiguringPublish(false);
+                      onClose();
+                    }}
                     className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-[#d4af37]/30 to-[#ffd700]/30 hover:from-[#d4af37]/50 hover:to-[#ffd700]/50 border border-[#ffd700] text-[#ffd700] font-bold text-xs tracking-wide uppercase transition-all flex items-center justify-center gap-2 cursor-pointer shadow-md"
                   >
                     <Sparkles className="w-4 h-4 text-[#ffd700]" />
-                    <span>Publicar na Loja (Modo Simples ou Avançado)</span>
+                    <span>Publicar na Loja & Vitrine</span>
                   </button>
                 )}
 
@@ -539,19 +553,25 @@ export const UploadGLBModal: React.FC<UploadGLBModalProps> = ({
               <div className="space-y-4 flex flex-col justify-between">
                 {/* Nome de exibição */}
                 <div>
-                  <label className="block text-xs md:text-sm font-bold text-[#ffd700] mb-1.5">
-                    Nome do arquivo / Objeto na cena
-                  </label>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="text-xs md:text-sm font-bold text-[#ffd700] flex items-center gap-1.5">
+                      <Pencil className="w-3.5 h-3.5" />
+                      <span>Nome do arquivo / Objeto na cena</span>
+                    </label>
+                    <span className="text-[10px] text-[#ffd700]/80 font-mono">
+                      Personalizável
+                    </span>
+                  </div>
                   <input
                     type="text"
                     required
                     value={displayName}
                     onChange={(e) => setDisplayName(e.target.value)}
-                    placeholder="Ex: man, mesa_moderna, predio"
+                    placeholder="Ex: Sala Moderna, Mesa de Vidro, Personagem Avatar..."
                     className="w-full bg-[#181a22] border border-[#d4af37]/50 rounded-lg px-3.5 py-2.5 text-sm font-semibold text-[#ffd700] placeholder:text-[#e8d5b5]/30 outline-none focus:border-[#ffd700] focus:ring-1 focus:ring-[#ffd700]"
                   />
                   <span className="text-xs text-[#e8d5b5]/60 mt-1 block">
-                    O nome acima será usado fielmente no inventário e no cenário.
+                    Defina como este modelo aparecerá no seu inventário e no mundo 3D.
                   </span>
                 </div>
 

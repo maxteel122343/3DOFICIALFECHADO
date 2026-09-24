@@ -1248,6 +1248,26 @@ export const CreatorEditorCanvas3D: React.FC<CreatorEditorCanvas3DProps> = ({
       return;
     }
 
+    // Check if this scenario is already managed as an editable placedObject with full Gizmo support!
+    const isManagedInPlacedObjects = placedObjects.some(
+      (o) => o.type === 'cenario' || (o.fileBlobUrl && o.fileBlobUrl === sceneAssetBlobUrl)
+    );
+
+    if (isManagedInPlacedObjects) {
+      // Clear customScenarioGroup so it doesn't double-render, but keep default room walls hidden
+      while (group.children.length > 0) {
+        const c = group.children[0];
+        group.remove(c);
+      }
+      setIsLoadingScenario(false);
+      if (defaultRoomGroupRef.current) {
+        defaultRoomGroupRef.current.children.forEach((c) => {
+          if (c.name !== 'floor') c.visible = false;
+        });
+      }
+      return;
+    }
+
     // Load actual GLB using GLTFLoader!
     setIsLoadingScenario(true);
     setScenarioLoadingMsg('Carregando modelo 3D do cenário...');
@@ -1401,6 +1421,9 @@ export const CreatorEditorCanvas3D: React.FC<CreatorEditorCanvas3DProps> = ({
           if (existingDims) {
             setRawDimensionsState((prev) => ({ ...prev, [obj.id]: existingDims }));
           }
+          if (selectedObjectId === obj.id && transformControlsRef.current) {
+            transformControlsRef.current.attach(objGroup);
+          }
         } else {
           // Load custom uploaded GLB file once
           const loader = new GLTFLoader();
@@ -1469,6 +1492,11 @@ export const CreatorEditorCanvas3D: React.FC<CreatorEditorCanvas3DProps> = ({
                   scale: [metric.scale, metric.scale, metric.scale],
                 });
               }
+
+              // Auto-attach Gizmo immediately upon model completion if this object is selected!
+              if (selectedObjectId === obj.id && transformControlsRef.current) {
+                transformControlsRef.current.attach(objGroup);
+              }
             },
             undefined,
             () => {
@@ -1498,6 +1526,9 @@ export const CreatorEditorCanvas3D: React.FC<CreatorEditorCanvas3DProps> = ({
         };
         rawDimensionsMapRef.current.set(obj.id, dimsRecord);
         setRawDimensionsState((prev) => ({ ...prev, [obj.id]: dimsRecord }));
+        if (selectedObjectId === obj.id && transformControlsRef.current) {
+          transformControlsRef.current.attach(objGroup);
+        }
       } else if (obj.modelType === 'sofa' || obj.name.toLowerCase().includes('sofa')) {
         const sofa = createSectionalLSofa();
         objGroup.add(sofa);
@@ -1511,6 +1542,9 @@ export const CreatorEditorCanvas3D: React.FC<CreatorEditorCanvas3DProps> = ({
         };
         rawDimensionsMapRef.current.set(obj.id, dimsRecord);
         setRawDimensionsState((prev) => ({ ...prev, [obj.id]: dimsRecord }));
+        if (selectedObjectId === obj.id && transformControlsRef.current) {
+          transformControlsRef.current.attach(objGroup);
+        }
       } else {
         const decorative = createDecorativeMesh(obj.name);
         objGroup.add(decorative);
@@ -1524,6 +1558,16 @@ export const CreatorEditorCanvas3D: React.FC<CreatorEditorCanvas3DProps> = ({
         };
         rawDimensionsMapRef.current.set(obj.id, dimsRecord);
         setRawDimensionsState((prev) => ({ ...prev, [obj.id]: dimsRecord }));
+        if (selectedObjectId === obj.id && transformControlsRef.current) {
+          transformControlsRef.current.attach(objGroup);
+        }
+      }
+
+      // Hide default room walls if this object is a custom 3D scenario (cenario)
+      if (obj.type === 'cenario' && defaultRoomGroupRef.current) {
+        defaultRoomGroupRef.current.children.forEach((c) => {
+          if (c.name !== 'floor') c.visible = false;
+        });
       }
     });
 
@@ -1563,10 +1607,19 @@ export const CreatorEditorCanvas3D: React.FC<CreatorEditorCanvas3DProps> = ({
     const tc = transformControlsRef.current;
     if (!tc) return;
 
-    if (isAvatarMode || (!selectedObjectId && (!selectedSpotId || lockSpots || !showSpots))) {
+    // Detach only if neither an object nor an editable spot is selected
+    if (!selectedObjectId && (!selectedSpotId || lockSpots || !showSpots || isAvatarMode)) {
       tc.detach();
       if (spotGizmoAnchorRef.current) spotGizmoAnchorRef.current.visible = false;
       return;
+    }
+
+    // Ensure TransformControls is attached to the selected object (Sala, Avatar, or Item)
+    if (selectedObjectId) {
+      const target = meshMapRef.current.get(selectedObjectId);
+      if (target && tc.object !== target) {
+        tc.attach(target);
+      }
     }
 
     if (selectedSpotId && !selectedObjectId) {
@@ -2526,7 +2579,7 @@ export const CreatorEditorCanvas3D: React.FC<CreatorEditorCanvas3DProps> = ({
       )}
 
       {/* FLOATING DIRECT INTERACTIVE SLIDER BAR HUD OVER SELECTED PLACED OBJECT */}
-      {selectedObj && objectGizmoScreenPos && !isAvatarMode && (
+      {selectedObj && objectGizmoScreenPos && (
         <div
           style={{
             left: `${objectGizmoScreenPos.x}px`,
@@ -2595,12 +2648,13 @@ export const CreatorEditorCanvas3D: React.FC<CreatorEditorCanvas3DProps> = ({
             {/* Object Type Selector: Movel | Objeto | Avatar */}
             {onUpdateObjectType && (
               <div className="flex items-center justify-between border-t border-[#d4af37]/20 pt-1.5 text-[10px]">
-                <span className="text-[9px] uppercase font-bold text-[#d4af37]/70">Tipo do Item:</span>
+                <span className="text-[9px] uppercase font-bold text-[#d4af37]/70">Tipo:</span>
                 <div className="flex items-center gap-1">
-                  {(['movel', 'objeto', 'avatar'] as const).map((t) => {
+                  {(['cenario', 'movel', 'objeto', 'avatar'] as const).map((t) => {
                     const isActive =
+                      (t === 'cenario' && selectedObj.type === 'cenario') ||
                       (t === 'avatar' && (selectedObj.type === 'avatar' || selectedObj.isAvatar)) ||
-                      (t !== 'avatar' && selectedObj.type === t && !selectedObj.isAvatar);
+                      (t !== 'avatar' && t !== 'cenario' && selectedObj.type === t && !selectedObj.isAvatar);
                     return (
                       <button
                         key={t}
@@ -2613,13 +2667,13 @@ export const CreatorEditorCanvas3D: React.FC<CreatorEditorCanvas3DProps> = ({
                         }}
                         className={`px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase tracking-wider transition-colors cursor-pointer ${
                           isActive
-                            ? t === 'avatar'
+                            ? t === 'cenario' || t === 'avatar'
                               ? 'bg-[#ffd700] text-black font-bold shadow-sm ring-1 ring-[#ffd700]'
                               : 'bg-[#d4af37] text-black font-bold'
                             : 'bg-black/40 text-[#e8d5b5]/70 hover:text-white border border-[#d4af37]/30'
                         }`}
                       >
-                        {t === 'avatar' ? '👤 Avatar' : t}
+                        {t === 'cenario' ? '🏛️ Sala' : t === 'avatar' ? '👤 Avatar' : t === 'movel' ? '🛋️ Móvel' : '📦 Item'}
                       </button>
                     );
                   })}

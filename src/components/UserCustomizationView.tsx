@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   Search,
   SlidersHorizontal,
@@ -19,6 +19,8 @@ import {
   Coins,
   Gem,
   ArrowLeft,
+  Camera,
+  Image as ImageIcon,
 } from 'lucide-react';
 import {
   CustomizationItem,
@@ -47,6 +49,7 @@ interface UserCustomizationViewProps {
   onAcquireStoreAvatar: (avatarId: string) => void;
   onAcquireCustomItem: (item: CustomizationItem) => void;
   onPublishCustomItem: (item: Partial<CustomizationItem>) => void;
+  onSelectActiveAvatar?: (avatarId: string) => void;
 }
 
 export const UserCustomizationView: React.FC<UserCustomizationViewProps> = ({
@@ -65,6 +68,7 @@ export const UserCustomizationView: React.FC<UserCustomizationViewProps> = ({
   onAcquireStoreAvatar,
   onAcquireCustomItem,
   onPublishCustomItem,
+  onSelectActiveAvatar,
 }) => {
   // Navigation Tabs matching Image 2 & Image 3: 'loja' | 'inventario' | 'poses'
   const [activeTab, setActiveTab] = useState<'loja' | 'inventario' | 'poses'>(initialTab);
@@ -107,8 +111,8 @@ export const UserCustomizationView: React.FC<UserCustomizationViewProps> = ({
 
   // INVENTÁRIO TAB STATE (Matching Image 2)
   const [selectedCategory, setSelectedCategory] = useState<
-    'chapeus' | 'casacos' | 'sapatos' | 'publicados' | 'todos'
-  >('chapeus');
+    'chapeus' | 'casacos' | 'sapatos' | 'avatares' | 'publicados' | 'todos'
+  >('avatares');
 
   // LOJA TAB STATE (Matching Image 3)
   const [searchQuery, setSearchQuery] = useState('');
@@ -461,6 +465,22 @@ export const UserCustomizationView: React.FC<UserCustomizationViewProps> = ({
 
                 <button
                   type="button"
+                  onClick={() => setSelectedCategory('avatares')}
+                  className={`flex items-center gap-1.5 transition-colors cursor-pointer pb-1 relative ${
+                    selectedCategory === 'avatares'
+                      ? 'text-zinc-100 font-semibold text-[#ffd700]'
+                      : 'text-zinc-500 hover:text-zinc-300'
+                  }`}
+                >
+                  <span>👤</span>
+                  <span>Avatares ({storeAvatars.filter((a) => a.owned).length})</span>
+                  {selectedCategory === 'avatares' && (
+                    <span className="absolute -bottom-1 inset-x-0 h-0.5 bg-[#ffd700]" />
+                  )}
+                </button>
+
+                <button
+                  type="button"
                   onClick={() => setSelectedCategory('publicados')}
                   className={`flex items-center gap-1.5 transition-colors cursor-pointer pb-1 relative ${
                     selectedCategory === 'publicados'
@@ -476,87 +496,181 @@ export const UserCustomizationView: React.FC<UserCustomizationViewProps> = ({
                 </button>
               </div>
 
-              {/* Grid of Items matching Image 2 (3 columns) */}
+              {/* Grid of Items or Avatars matching Image 2 */}
               <div className="flex-1 overflow-y-auto pt-4 pr-1 scrollbar-thin scrollbar-thumb-zinc-800">
-                <div className="grid grid-cols-3 gap-3">
-                  {filteredInventoryItems.map((item) => (
-                    <div
-                      key={item.id}
-                      className={`relative rounded-xl border p-2 flex flex-col justify-between transition-all group ${
-                        item.equipped
-                          ? 'bg-[#15171e] border-[#d4af37]/80 ring-1 ring-[#d4af37]/40'
-                          : 'bg-[#121317] border-[#22242d] hover:border-zinc-700'
-                      }`}
-                    >
-                      {/* Code Tag (e.g. #H001, #C001, #S001) in soft cyan/teal matching Image 2 */}
-                      <span className="text-[10px] font-mono font-medium text-[#14b8a6] px-1 py-0.5">
-                        {item.code}
-                      </span>
+                {selectedCategory === 'avatares' ? (
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                    {storeAvatars
+                      .filter((av) => av.owned)
+                      .map((av) => {
+                        const isSelectedForPreview = selectedAvatarId === av.id;
+                        return (
+                          <div
+                            key={av.id}
+                            onClick={() => setSelectedAvatarId(av.id)}
+                            className={`relative rounded-xl border p-2.5 flex flex-col justify-between transition-all cursor-pointer group ${
+                              av.applied
+                                ? 'bg-[#15171e] border-[#ffd700] ring-1 ring-[#ffd700]/70 shadow-[0_0_12px_rgba(255,215,0,0.2)]'
+                                : isSelectedForPreview
+                                ? 'bg-[#15171e] border-[#d4af37]/80 ring-1 ring-[#d4af37]/40'
+                                : 'bg-[#121317] border-[#22242d] hover:border-zinc-700'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between text-[10px] mb-1">
+                              <span className="font-mono font-medium text-[#14b8a6]">
+                                #{av.id.slice(0, 6)}
+                              </span>
+                              <span
+                                className={`px-1.5 py-0.2 rounded font-mono font-bold uppercase text-[9px] ${
+                                  av.rarity === 'ÉLITE'
+                                    ? 'bg-[#d4af37]/20 text-[#ffd700]'
+                                    : 'bg-teal-950/80 text-teal-400'
+                                }`}
+                              >
+                                {av.rarity || 'RARO'}
+                              </span>
+                            </div>
 
-                      {/* Product Thumbnail on Dark Background */}
-                      <div className="relative aspect-square w-full rounded-lg overflow-hidden bg-[#0d0e11] my-1 flex items-center justify-center">
-                        <img
-                          src={item.thumb}
-                          alt={item.name}
-                          className="w-full h-full object-cover filter contrast-110 brightness-95 group-hover:scale-105 transition-transform duration-300"
-                          referrerPolicy="no-referrer"
-                        />
-                        {item.equipped && (
-                          <div className="absolute top-1.5 right-1.5 w-4 h-4 rounded-full bg-[#d4af37] text-black flex items-center justify-center text-[10px] font-bold shadow-md">
-                            ✓
+                            <div className="relative aspect-square w-full rounded-lg overflow-hidden bg-[#0d0e11] my-1 flex items-center justify-center">
+                              <img
+                                src={av.thumb}
+                                alt={av.name}
+                                className="w-full h-full object-cover filter contrast-110 group-hover:scale-105 transition-transform duration-300"
+                                referrerPolicy="no-referrer"
+                              />
+                              {av.applied && (
+                                <div className="absolute top-1.5 right-1.5 px-1.5 py-0.5 rounded bg-[#ffd700] text-black text-[9px] font-bold shadow-md flex items-center gap-1">
+                                  <span>⭐</span>
+                                  <span>EM USO</span>
+                                </div>
+                              )}
+                            </div>
+
+                            <p className="text-[11px] font-semibold text-zinc-200 truncate mt-1 text-center">
+                              {av.name}
+                            </p>
+                            <span className="text-[9px] text-zinc-500 truncate text-center block">
+                              Por {av.author || 'Luzenne'}
+                            </span>
+
+                            <div className="mt-2 pt-1 border-t border-white/5 flex flex-col gap-1">
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSelectedAvatarId(av.id);
+                                  if (onSelectActiveAvatar) {
+                                    onSelectActiveAvatar(av.id);
+                                  } else {
+                                    onAcquireStoreAvatar(av.id);
+                                  }
+                                  showToast(`Avatar "${av.name}" selecionado para jogar!`);
+                                }}
+                                className={`w-full py-1.5 rounded text-[11px] font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                                  av.applied
+                                    ? 'bg-[#ffd700] text-black shadow-[0_0_10px_rgba(255,215,0,0.3)]'
+                                    : 'bg-zinc-800 hover:bg-[#d4af37] hover:text-black text-zinc-200'
+                                }`}
+                              >
+                                {av.applied ? (
+                                  <>
+                                    <span>✓ Avatar em Uso</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <User className="w-3 h-3" />
+                                    <span>Usar para Jogar</span>
+                                  </>
+                                )}
+                              </button>
+                            </div>
                           </div>
-                        )}
-                      </div>
-
-                      {/* Item Name */}
-                      <p className="text-[11px] font-medium text-zinc-200 truncate mt-1 text-center">
-                        {item.name}
-                      </p>
-
-                      {/* Action Button: Remover 🗑️ or Equipar / Equipado */}
-                      <div className="mt-2 pt-1 border-t border-white/5 flex items-center justify-center gap-1">
-                        <button
-                          type="button"
-                          onClick={() => onToggleEquipItem(item.id)}
-                          className={`w-full py-1 rounded text-[10px] font-semibold transition-colors cursor-pointer flex items-center justify-center gap-1 ${
+                        );
+                      })}
+                  </div>
+                ) : (
+                  <>
+                    <div className="grid grid-cols-3 gap-3">
+                      {filteredInventoryItems.map((item) => (
+                        <div
+                          key={item.id}
+                          className={`relative rounded-xl border p-2 flex flex-col justify-between transition-all group ${
                             item.equipped
-                              ? 'bg-[#d4af37] text-black hover:bg-amber-300'
-                              : 'bg-zinc-800/80 hover:bg-zinc-700 text-zinc-300'
+                              ? 'bg-[#15171e] border-[#d4af37]/80 ring-1 ring-[#d4af37]/40'
+                              : 'bg-[#121317] border-[#22242d] hover:border-zinc-700'
                           }`}
                         >
-                          {item.equipped ? (
-                            <>
-                              <span>Equipado</span>
-                            </>
-                          ) : (
-                            <span>Equipar</span>
-                          )}
-                        </button>
+                          {/* Code Tag (e.g. #H001, #C001, #S001) in soft cyan/teal matching Image 2 */}
+                          <span className="text-[10px] font-mono font-medium text-[#14b8a6] px-1 py-0.5">
+                            {item.code}
+                          </span>
 
+                          {/* Product Thumbnail on Dark Background */}
+                          <div className="relative aspect-square w-full rounded-lg overflow-hidden bg-[#0d0e11] my-1 flex items-center justify-center">
+                            <img
+                              src={item.thumb}
+                              alt={item.name}
+                              className="w-full h-full object-cover filter contrast-110 brightness-95 group-hover:scale-105 transition-transform duration-300"
+                              referrerPolicy="no-referrer"
+                            />
+                            {item.equipped && (
+                              <div className="absolute top-1.5 right-1.5 w-4 h-4 rounded-full bg-[#d4af37] text-black flex items-center justify-center text-[10px] font-bold shadow-md">
+                                ✓
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Item Name */}
+                          <p className="text-[11px] font-medium text-zinc-200 truncate mt-1 text-center">
+                            {item.name}
+                          </p>
+
+                          {/* Action Button: Remover 🗑️ or Equipar / Equipado */}
+                          <div className="mt-2 pt-1 border-t border-white/5 flex items-center justify-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => onToggleEquipItem(item.id)}
+                              className={`w-full py-1 rounded text-[10px] font-semibold transition-colors cursor-pointer flex items-center justify-center gap-1 ${
+                                item.equipped
+                                  ? 'bg-[#d4af37] text-black hover:bg-amber-300'
+                                  : 'bg-zinc-800/80 hover:bg-zinc-700 text-zinc-300'
+                              }`}
+                            >
+                              {item.equipped ? (
+                                <>
+                                  <span>Equipado</span>
+                                </>
+                              ) : (
+                                <span>Equipar</span>
+                              )}
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => onRemoveItemFromInventory(item.id)}
+                              className="p-1 rounded text-zinc-500 hover:text-red-400 hover:bg-red-950/20 transition-colors cursor-pointer"
+                              title="Remover do Inventário"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {filteredInventoryItems.length === 0 && (
+                      <div className="py-16 text-center text-zinc-500 text-xs flex flex-col items-center">
+                        <p>Nenhum item nesta categoria ainda.</p>
                         <button
                           type="button"
-                          onClick={() => onRemoveItemFromInventory(item.id)}
-                          className="p-1 rounded text-zinc-500 hover:text-red-400 hover:bg-red-950/20 transition-colors cursor-pointer"
-                          title="Remover do Inventário"
+                          onClick={() => setActiveTab('loja')}
+                          className="mt-3 px-3 py-1.5 rounded-lg bg-[#d4af37]/20 border border-[#d4af37]/50 text-[#ffd700] hover:bg-[#d4af37] hover:text-black transition-colors cursor-pointer text-xs font-semibold"
                         >
-                          <Trash2 className="w-3 h-3" />
+                          Explorar na Loja
                         </button>
                       </div>
-                    </div>
-                  ))}
-                </div>
-
-                {filteredInventoryItems.length === 0 && (
-                  <div className="py-16 text-center text-zinc-500 text-xs flex flex-col items-center">
-                    <p>Nenhum item nesta categoria ainda.</p>
-                    <button
-                      type="button"
-                      onClick={() => setActiveTab('loja')}
-                      className="mt-3 px-3 py-1.5 rounded-lg bg-[#d4af37]/20 border border-[#d4af37]/50 text-[#ffd700] hover:bg-[#d4af37] hover:text-black transition-colors cursor-pointer text-xs font-semibold"
-                    >
-                      Explorar na Loja
-                    </button>
-                  </div>
+                    )}
+                  </>
                 )}
               </div>
             </div>
@@ -791,6 +905,7 @@ export const UserCustomizationView: React.FC<UserCustomizationViewProps> = ({
               currentPose={activePose}
               equippedItems={customizationItems.filter((i) => i.equipped)}
               avatarName={currentAvatar.name}
+              avatarModelUrl={currentAvatar.fileBlobUrl}
               fineAdjustments={fineAdjustments}
               onUpdateRotation={(rotY) =>
                 setFineAdjustments((prev) => ({ ...prev, rotationY: rotY }))

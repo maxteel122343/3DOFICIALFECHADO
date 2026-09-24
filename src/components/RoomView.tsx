@@ -8,6 +8,8 @@ import {
   Spot,
   ChatMessage,
   SpeechBubbleItem,
+  StoreAvatar,
+  CreatorUser,
 } from '../types';
 import { INITIAL_POSES, INITIAL_SPOTS, INITIAL_CHAT } from '../data/initialData';
 import { LoungeCanvas3D } from './LoungeCanvas3D';
@@ -20,12 +22,16 @@ interface RoomViewProps {
   room: RoomData;
   onExitToLobby: () => void;
   equippedAccessories: string[];
+  activeUserAvatar?: StoreAvatar | null;
+  user?: CreatorUser | null;
 }
 
 export const RoomView: React.FC<RoomViewProps> = ({
   room,
   onExitToLobby,
   equippedAccessories,
+  activeUserAvatar,
+  user,
 }) => {
   // Gizmo & Transform State
   const [gizmoMode, setGizmoMode] = useState<GizmoMode>('scale');
@@ -139,13 +145,18 @@ export const RoomView: React.FC<RoomViewProps> = ({
           onUpdateAvatarHeadScreenPos={setScreenHeadPositions}
           editorRoom={room.editorRoom}
           showSpotArrows={showSpotArrows}
+          activeUserAvatar={activeUserAvatar}
         />
       </div>
 
-      {/* Speech Bubbles Overlay Anchored over 3D Avatars */}
+      {/* Speech Bubbles and Floating Avatar Name Tag with Photo Anchored over 3D Avatars */}
       <SpeechBubbleOverlay
         bubbles={speechBubbles}
         screenPositions={screenHeadPositions}
+        spots={spots}
+        currentSpotId={currentSpotId}
+        activeUserAvatar={activeUserAvatar}
+        user={user}
       />
 
       {/* TOP BAR matching Reference 1:
@@ -286,6 +297,7 @@ export const RoomView: React.FC<RoomViewProps> = ({
           poses={poses}
           selectedPoseId={selectedPose.id}
           onSelectPose={setSelectedPose}
+          activeUserAvatar={activeUserAvatar}
         />
       </div>
 

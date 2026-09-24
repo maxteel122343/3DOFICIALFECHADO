@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { AvatarPose, AvatarTransform, Spot, RoomEditorState } from '../types';
+import { AvatarPose, AvatarTransform, Spot, RoomEditorState, StoreAvatar } from '../types';
 
 interface LoungeCanvas3DProps {
   currentPose: AvatarPose;
@@ -14,6 +14,7 @@ interface LoungeCanvas3DProps {
   onUpdateAvatarHeadScreenPos?: (positions: Record<number, { x: number; y: number }>) => void;
   editorRoom?: RoomEditorState;
   showSpotArrows?: boolean;
+  activeUserAvatar?: StoreAvatar | null;
 }
 
 export const LoungeCanvas3D: React.FC<LoungeCanvas3DProps> = ({
@@ -27,6 +28,7 @@ export const LoungeCanvas3D: React.FC<LoungeCanvas3DProps> = ({
   onUpdateAvatarHeadScreenPos,
   editorRoom,
   showSpotArrows = true,
+  activeUserAvatar,
 }) => {
   const mountRef = useRef<HTMLDivElement>(null);
   const playerGroupRef = useRef<THREE.Group | null>(null);
@@ -118,7 +120,10 @@ export const LoungeCanvas3D: React.FC<LoungeCanvas3DProps> = ({
     fillLight.position.set(0, 2.0, 4.0);
     scene.add(fillLight);
 
-    // Architectural Concrete Lounge Room (Reference 1)
+    // Architectural Concrete Lounge Room (Default Architecture)
+    const defaultArchitectureGroup = new THREE.Group();
+    scene.add(defaultArchitectureGroup);
+
     const roomMaterial = new THREE.MeshStandardMaterial({
       color: 0x38393c,
       roughness: 0.85,
@@ -142,21 +147,21 @@ export const LoungeCanvas3D: React.FC<LoungeCanvas3DProps> = ({
     const backWall = new THREE.Mesh(backWallGeo, roomMaterial);
     backWall.position.set(0, 4, -3.2);
     backWall.receiveShadow = true;
-    scene.add(backWall);
+    defaultArchitectureGroup.add(backWall);
 
     // Cove ledge geometry
     const ledgeGeo = new THREE.BoxGeometry(16, 0.15, 0.4);
     const ledgeMat = new THREE.MeshStandardMaterial({ color: 0x2d2e30, roughness: 0.7 });
     const ledge = new THREE.Mesh(ledgeGeo, ledgeMat);
     ledge.position.set(0, 3.4, -3.0);
-    scene.add(ledge);
+    defaultArchitectureGroup.add(ledge);
 
     // Warm LED strip glowing line on ledge
     const stripGeo = new THREE.BoxGeometry(16, 0.05, 0.05);
     const stripMat = new THREE.MeshBasicMaterial({ color: 0xffe2b2 });
     const strip = new THREE.Mesh(stripGeo, stripMat);
     strip.position.set(0, 3.48, -2.95);
-    scene.add(strip);
+    defaultArchitectureGroup.add(strip);
 
     // Right Wall with shelf niche (seen in Reference 1)
     const rightWallGeo = new THREE.PlaneGeometry(12, 8);
@@ -164,26 +169,26 @@ export const LoungeCanvas3D: React.FC<LoungeCanvas3DProps> = ({
     rightWall.position.set(4.5, 4, 0);
     rightWall.rotation.y = -Math.PI / 2;
     rightWall.receiveShadow = true;
-    scene.add(rightWall);
+    defaultArchitectureGroup.add(rightWall);
 
     // Shelf niche interior
     const shelfGeo = new THREE.BoxGeometry(0.35, 1.8, 2.2);
     const shelfMat = new THREE.MeshStandardMaterial({ color: 0x1f2022, roughness: 0.9 });
     const shelfNiche = new THREE.Mesh(shelfGeo, shelfMat);
     shelfNiche.position.set(4.35, 1.6, -1.0);
-    scene.add(shelfNiche);
+    defaultArchitectureGroup.add(shelfNiche);
 
     // Warm light inside shelf
     const shelfLight = new THREE.PointLight(0xffd599, 1.2, 3);
     shelfLight.position.set(4.1, 1.8, -1.0);
-    scene.add(shelfLight);
+    defaultArchitectureGroup.add(shelfLight);
 
     // Decorative vase on shelf
     const vaseGeo = new THREE.CylinderGeometry(0.08, 0.12, 0.4, 16);
     const vaseMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.3 });
     const vase = new THREE.Mesh(vaseGeo, vaseMat);
     vase.position.set(4.2, 1.1, -1.2);
-    scene.add(vase);
+    defaultArchitectureGroup.add(vase);
 
     // Golden Carpet with Fringes (Reference 1)
     const rugGeo = new THREE.PlaneGeometry(4.4, 2.6);
@@ -196,7 +201,54 @@ export const LoungeCanvas3D: React.FC<LoungeCanvas3DProps> = ({
     rug.rotation.x = -Math.PI / 2;
     rug.position.set(0, 0.015, 0.1);
     rug.receiveShadow = true;
-    scene.add(rug);
+    defaultArchitectureGroup.add(rug);
+
+    // If editorRoom has a custom 3D scenario uploaded/set, load it and hide default walls!
+    if (editorRoom?.sceneAssetBlobUrl) {
+      defaultArchitectureGroup.visible = false;
+      const scenarioLoader = new GLTFLoader();
+      scenarioLoader.load(
+        editorRoom.sceneAssetBlobUrl,
+        (gltf) => {
+          const model = gltf.scene;
+          const box = new THREE.Box3().setFromObject(model);
+          const size = box.getSize(new THREE.Vector3());
+          const rawHeight = Math.max(0.01, size.y);
+          const targetCeiling = editorRoom.boundary?.y || 2.80;
+          const scale = targetCeiling / rawHeight;
+          model.scale.set(scale, scale, scale);
+
+          const scaledBox = new THREE.Box3().setFromObject(model);
+          const center = scaledBox.getCenter(new THREE.Vector3());
+          model.position.x = -center.x;
+          model.position.z = -center.z;
+          scaledBox.setFromObject(model);
+          model.position.y = -scaledBox.min.y;
+
+          model.traverse((node) => {
+            if ((node as THREE.Mesh).isMesh) {
+              node.castShadow = true;
+              node.receiveShadow = true;
+              const mat = (node as THREE.Mesh).material;
+              if (mat) {
+                if (Array.isArray(mat)) {
+                  mat.forEach((m) => (m.side = THREE.DoubleSide));
+                } else {
+                  mat.side = THREE.DoubleSide;
+                }
+              }
+            }
+          });
+
+          scene.add(model);
+        },
+        undefined,
+        (err) => {
+          console.warn('Could not load custom scenario model:', err);
+          defaultArchitectureGroup.visible = true;
+        }
+      );
+    }
 
     // Spot Meshes: Glowing circles (círculos brilhantes) + discreet blinking down-arrow
     const spotClickablesGroup = new THREE.Group();
@@ -333,7 +385,27 @@ export const LoungeCanvas3D: React.FC<LoungeCanvas3DProps> = ({
 
         if (obj.fileBlobUrl) {
           gltfLoader.load(obj.fileBlobUrl, (gltf) => {
-            objGroup.add(gltf.scene);
+            const m = gltf.scene;
+            const rawBox = new THREE.Box3().setFromObject(m);
+            const center = rawBox.getCenter(new THREE.Vector3());
+            m.position.x = -center.x;
+            m.position.z = -center.z;
+            m.position.y = -rawBox.min.y;
+            m.traverse((child) => {
+              if ((child as THREE.Mesh).isMesh) {
+                child.castShadow = true;
+                child.receiveShadow = true;
+                const mat = (child as THREE.Mesh).material;
+                if (mat) {
+                  if (Array.isArray(mat)) {
+                    mat.forEach((x) => (x.side = THREE.DoubleSide));
+                  } else {
+                    mat.side = THREE.DoubleSide;
+                  }
+                }
+              }
+            });
+            objGroup.add(m);
           });
         } else if (
           obj.type === 'avatar' ||
@@ -394,16 +466,50 @@ export const LoungeCanvas3D: React.FC<LoungeCanvas3DProps> = ({
       scene.add(zackGroup);
     }
 
-    // Center Avatar: Player (Luzenne - black hoodie, gold chain, sunglasses, customized pose)
-    const playerGroup = createCharacterMesh({
-      skinColor: 0xcca080,
-      hairColor: 0x1f1b18,
-      clothColor: 0x19191d, // black hoodie
-      pantsColor: 0x202227, // black joggers
-      hasGlasses: true,
-      hasGoldChain: true,
-      hairStyle: 'curly',
-    });
+    // Center Avatar: Player (customized according to activeUserAvatar chosen by user)
+    const playerGroup = new THREE.Group();
+    if (activeUserAvatar?.fileBlobUrl) {
+      const gltfLoader = new GLTFLoader();
+      gltfLoader.load(activeUserAvatar.fileBlobUrl, (gltf) => {
+        const m = gltf.scene;
+        const box = new THREE.Box3().setFromObject(m);
+        const size = box.getSize(new THREE.Vector3());
+        const targetH = 1.70;
+        const s = targetH / Math.max(0.1, size.y);
+        m.scale.set(s, s, s);
+        const scaledBox = new THREE.Box3().setFromObject(m);
+        const center = scaledBox.getCenter(new THREE.Vector3());
+        m.position.x = -center.x;
+        m.position.z = -center.z;
+        m.position.y = -scaledBox.min.y;
+        m.traverse((child) => {
+          if ((child as THREE.Mesh).isMesh) {
+            child.castShadow = true;
+            child.receiveShadow = true;
+          }
+        });
+        playerGroup.add(m);
+      });
+    } else {
+      const isCyber =
+        activeUserAvatar?.name.toLowerCase().includes('cyber') ||
+        activeUserAvatar?.tags?.includes('#streetwear');
+      const isGala =
+        activeUserAvatar?.name.toLowerCase().includes('gala') ||
+        activeUserAvatar?.tags?.includes('#formal');
+      const isMinimal = activeUserAvatar?.name.toLowerCase().includes('minimal');
+
+      const defaultPlayerMesh = createCharacterMesh({
+        skinColor: 0xcca080,
+        hairColor: 0x1f1b18,
+        clothColor: isCyber ? 0x14b8a6 : isGala ? 0x121316 : isMinimal ? 0xe2ded5 : 0x19191d,
+        pantsColor: isCyber ? 0x1b1f24 : 0x202227,
+        hasGlasses: isCyber || equippedAccessories.includes('sunglasses'),
+        hasGoldChain: isGala || true,
+        hairStyle: 'curly',
+      });
+      playerGroup.add(defaultPlayerMesh);
+    }
     playerGroup.position.set(0, 0.28, 0.2);
     scene.add(playerGroup);
     playerGroupRef.current = playerGroup;

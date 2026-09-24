@@ -15,6 +15,8 @@ import {
   ChevronRight,
   User,
   GripHorizontal,
+  ShoppingBag,
+  Pencil,
 } from 'lucide-react';
 import { InventoryItem, PlacedObject, SpotItem, SpotType } from '../types';
 
@@ -40,6 +42,12 @@ interface CreatorSidebarProps {
   customAvatarObjectId?: string | null;
   onSetCustomAvatarObjectId?: (id: string | null) => void;
   isAvatarMode?: boolean;
+  sceneAssetBlobUrl?: string;
+  sceneAssetName?: string;
+  onRemoveScenario?: () => void;
+  onPublishInventoryItem?: (item: InventoryItem) => void;
+  onRenameInventoryItem?: (id: string, newName: string) => void;
+  onRenamePlacedObject?: (id: string, newName: string) => void;
 }
 
 export const CreatorSidebar: React.FC<CreatorSidebarProps> = ({
@@ -64,11 +72,23 @@ export const CreatorSidebar: React.FC<CreatorSidebarProps> = ({
   customAvatarObjectId = null,
   onSetCustomAvatarObjectId,
   isAvatarMode = false,
+  sceneAssetBlobUrl,
+  sceneAssetName,
+  onRemoveScenario,
+  onPublishInventoryItem,
+  onRenameInventoryItem,
+  onRenamePlacedObject,
 }) => {
   const [activeTab, setActiveTab] = useState<'spots' | 'objects' | 'inventory'>('spots');
   const [isAddingSpot, setIsAddingSpot] = useState(false);
   const [newSpotType, setNewSpotType] = useState<SpotType>('sentar');
   const [newSpotName, setNewSpotName] = useState('');
+
+  // Inline rename state
+  const [editingItemId, setEditingItemId] = useState<string | null>(null);
+  const [editingItemName, setEditingItemName] = useState<string>('');
+  const [editingObjectId, setEditingObjectId] = useState<string | null>(null);
+  const [editingObjectName, setEditingObjectName] = useState<string>('');
 
   const handleCreateSpot = (e: React.FormEvent) => {
     e.preventDefault();
@@ -352,10 +372,72 @@ export const CreatorSidebar: React.FC<CreatorSidebarProps> = ({
           <div className="flex-1 overflow-y-auto space-y-2 pr-1 custom-scrollbar">
             <div className="flex items-center justify-between pb-1 text-xs text-[#d4af37]/80">
               <span className="font-semibold text-[#d4af37]">Objetos na cena</span>
-              <span className="text-[11px] font-mono">{placedObjects.length} itens</span>
+              <span className="text-[11px] font-mono">
+                {placedObjects.length + (sceneAssetBlobUrl ? 1 : 0)} itens
+              </span>
             </div>
 
-            {placedObjects.length === 0 ? (
+            {/* If room has custom scenario model, show it prominently so user sees their 3D scene and can select with Gizmo! */}
+            {sceneAssetBlobUrl && (() => {
+              const scenarioObj = placedObjects.find(
+                (o) => o.type === 'cenario' || (sceneAssetBlobUrl && o.fileBlobUrl === sceneAssetBlobUrl)
+              );
+              const isScenarioSelected = scenarioObj ? selectedObjectId === scenarioObj.id : false;
+
+              return (
+                <div
+                  onClick={() => {
+                    if (scenarioObj) {
+                      onSelectObjectId?.(scenarioObj.id);
+                    }
+                  }}
+                  className={`p-2.5 rounded-lg border transition-all cursor-pointer flex flex-col gap-1.5 mb-2 ${
+                    isScenarioSelected
+                      ? 'border-[#ffd700] bg-[#ffd700]/15 text-[#ffd700] shadow-[0_0_15px_rgba(255,215,0,0.35)] ring-1 ring-[#ffd700]'
+                      : 'border-[#ffd700]/70 hover:border-[#ffd700] bg-[#161822] text-[#e8d5b5]'
+                  }`}
+                  title="Clique para selecionar o Cenário 3D da Sala e ativar o Gizmo de transformação"
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className="w-8 h-8 rounded border border-[#ffd700] bg-[#ffd700]/20 flex items-center justify-center text-base flex-shrink-0">
+                        🏛️
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-xs font-bold text-[#ffd700] truncate">
+                            {sceneAssetName || scenarioObj?.name || 'Cenário 3D da Sala'}
+                          </span>
+                          <span className="text-[9px] px-1 py-0.2 rounded bg-[#ffd700] text-black font-bold uppercase">
+                            Cenário
+                          </span>
+                        </div>
+                        <span className="text-[10px] text-[#e8d5b5]/70 block font-mono">
+                          {isScenarioSelected
+                            ? '✓ Selecionado (Gizmo Ativo na Sala)'
+                            : 'Clique para selecionar com Gizmo (Teto ~2.8m)'}
+                        </span>
+                      </div>
+                    </div>
+                    {onRemoveScenario && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onRemoveScenario();
+                        }}
+                        className="p-1.5 rounded text-red-400 hover:text-red-200 hover:bg-red-950/80 border border-transparent hover:border-red-500/50 transition-colors cursor-pointer text-xs"
+                        title="Remover este cenário 3D da sala"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
+
+            {placedObjects.length === 0 && !sceneAssetBlobUrl ? (
               <div className="p-4 rounded-lg border border-dashed border-[#d4af37]/30 bg-black/40 text-center text-xs text-[#e8d5b5]/60 mt-4">
                 <Box className="w-8 h-8 text-[#d4af37]/40 mx-auto mb-2" />
                 <p>Nenhum objeto na sala.</p>
@@ -364,7 +446,12 @@ export const CreatorSidebar: React.FC<CreatorSidebarProps> = ({
                 </p>
               </div>
             ) : (
-              placedObjects.map((obj) => {
+              placedObjects
+                .filter(
+                  (obj) =>
+                    !(sceneAssetBlobUrl && (obj.type === 'cenario' || obj.fileBlobUrl === sceneAssetBlobUrl))
+                )
+                .map((obj) => {
                 const isSelected = selectedObjectId === obj.id;
                 const isAvatarType = obj.type === 'avatar' || obj.isAvatar;
                 const isCustomAvatar = customAvatarObjectId === obj.id;
@@ -410,17 +497,66 @@ export const CreatorSidebar: React.FC<CreatorSidebarProps> = ({
                             <Box className="w-4 h-4" />
                           )}
                         </div>
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-xs font-semibold truncate block">
-                              {obj.name}
-                            </span>
-                            {isCustomAvatar && (
-                              <span className="text-[9px] font-bold bg-[#ffd700] text-black px-1.5 py-0.2 rounded shadow-sm animate-pulse">
-                                ⭐ Ativo
+                        <div className="min-w-0 flex-1">
+                          {editingObjectId === obj.id ? (
+                            <div className="flex items-center gap-1 w-full" onClick={(e) => e.stopPropagation()}>
+                              <input
+                                type="text"
+                                autoFocus
+                                value={editingObjectName}
+                                onChange={(e) => setEditingObjectName(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    if (editingObjectName.trim()) {
+                                      onRenamePlacedObject?.(obj.id, editingObjectName.trim());
+                                    }
+                                    setEditingObjectId(null);
+                                  } else if (e.key === 'Escape') {
+                                    setEditingObjectId(null);
+                                  }
+                                }}
+                                className="w-full bg-[#181a24] border border-[#ffd700] rounded px-1.5 py-0.5 text-xs text-[#ffd700] outline-none"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (editingObjectName.trim()) {
+                                    onRenamePlacedObject?.(obj.id, editingObjectName.trim());
+                                  }
+                                  setEditingObjectId(null);
+                                }}
+                                className="p-1 rounded bg-[#ffd700] text-black hover:bg-amber-300 cursor-pointer flex-shrink-0"
+                                title="Salvar nome"
+                              >
+                                <Check className="w-3 h-3" />
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-xs font-semibold truncate block max-w-[140px]">
+                                {obj.name}
                               </span>
-                            )}
-                          </div>
+                              {onRenamePlacedObject && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setEditingObjectId(obj.id);
+                                    setEditingObjectName(obj.name);
+                                  }}
+                                  className="p-0.5 rounded text-[#d4af37]/50 hover:text-[#ffd700] hover:bg-[#d4af37]/20 transition-colors cursor-pointer"
+                                  title="Renomear este objeto na cena"
+                                >
+                                  <Pencil className="w-3 h-3" />
+                                </button>
+                              )}
+                              {isCustomAvatar && (
+                                <span className="text-[9px] font-bold bg-[#ffd700] text-black px-1.5 py-0.2 rounded shadow-sm animate-pulse">
+                                  ⭐ Ativo
+                                </span>
+                              )}
+                            </div>
+                          )}
                           <span className="text-[10px] font-mono text-[#d4af37]/75">
                             X: {obj.position[0].toFixed(2)}m · Z: {obj.position[2].toFixed(2)}m
                           </span>
@@ -574,33 +710,101 @@ export const CreatorSidebar: React.FC<CreatorSidebarProps> = ({
                   </div>
 
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between">
-                      <h4 className="text-xs font-semibold text-[#e8d5b5] truncate group-hover:text-[#ffd700]">
-                        {item.displayName}
-                      </h4>
-                      <GripHorizontal className="w-3.5 h-3.5 text-[#d4af37]/40 group-hover:text-[#ffd700]" />
-                    </div>
+                    {editingItemId === item.id ? (
+                      <div className="flex items-center gap-1 w-full" onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="text"
+                          autoFocus
+                          value={editingItemName}
+                          onChange={(e) => setEditingItemName(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              if (editingItemName.trim()) {
+                                onRenameInventoryItem?.(item.id, editingItemName.trim());
+                              }
+                              setEditingItemId(null);
+                            } else if (e.key === 'Escape') {
+                              setEditingItemId(null);
+                            }
+                          }}
+                          className="w-full bg-[#181a24] border border-[#ffd700] rounded px-1.5 py-0.5 text-xs text-[#ffd700] outline-none"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (editingItemName.trim()) {
+                              onRenameInventoryItem?.(item.id, editingItemName.trim());
+                            }
+                            setEditingItemId(null);
+                          }}
+                          className="p-1 rounded bg-[#ffd700] text-black hover:bg-amber-300 cursor-pointer flex-shrink-0"
+                          title="Salvar nome"
+                        >
+                          <Check className="w-3 h-3" />
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1 min-w-0">
+                          <h4 className="text-xs font-semibold text-[#e8d5b5] truncate group-hover:text-[#ffd700]" title={item.displayName}>
+                            {item.displayName}
+                          </h4>
+                          {onRenameInventoryItem && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setEditingItemId(item.id);
+                                setEditingItemName(item.displayName);
+                              }}
+                              className="p-0.5 rounded text-[#d4af37]/50 hover:text-[#ffd700] hover:bg-[#d4af37]/20 transition-colors cursor-pointer"
+                              title="Renomear este arquivo no inventário"
+                            >
+                              <Pencil className="w-3 h-3" />
+                            </button>
+                          )}
+                        </div>
+                        <GripHorizontal className="w-3.5 h-3.5 text-[#d4af37]/40 group-hover:text-[#ffd700] flex-shrink-0" />
+                      </div>
+                    )}
                     <span className="text-[9px] font-mono px-1.5 py-0.5 rounded border border-[#d4af37]/40 text-[#d4af37] inline-block mt-0.5">
                       {item.type}
                     </span>
                   </div>
                 </div>
 
-                {/* Insertion Action */}
-                <button
-                  type="button"
-                  onClick={() => onInsertAssetToScene(item)}
-                  className="w-full py-1 rounded border border-[#d4af37]/60 hover:border-[#d4af37] hover:bg-[#d4af37] hover:text-black text-[10px] font-semibold text-[#d4af37] tracking-wider uppercase transition-colors cursor-pointer flex items-center justify-center gap-1.5"
-                >
-                  <Plus className="w-3 h-3" />
-                  <span>
-                    {item.type === 'Sala'
-                      ? 'Carregar como Cenário 3D'
-                      : insertionCursorPoint
-                      ? 'Inserir no ponto marcado'
-                      : 'Inserir na cena'}
-                  </span>
-                </button>
+                {/* Actions: Inserir na cena & Publicar na Loja */}
+                <div className="flex items-center gap-1.5 w-full pt-1">
+                  <button
+                    type="button"
+                    onClick={() => onInsertAssetToScene(item)}
+                    className="flex-1 py-1 px-1.5 rounded border border-[#d4af37]/60 hover:border-[#d4af37] hover:bg-[#d4af37] hover:text-black text-[10px] font-semibold text-[#d4af37] tracking-wider uppercase transition-colors cursor-pointer flex items-center justify-center gap-1"
+                    title={
+                      item.type === 'Sala'
+                        ? 'Carregar como Maquete 3D da Sala'
+                        : 'Inserir este objeto na cena 3D'
+                    }
+                  >
+                    <Plus className="w-3 h-3 flex-shrink-0" />
+                    <span className="truncate">
+                      {item.type === 'Sala'
+                        ? 'Cenário'
+                        : insertionCursorPoint
+                        ? 'No Ponto'
+                        : 'Inserir'}
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => onPublishInventoryItem?.(item)}
+                    className="flex-1 py-1 px-1.5 rounded border border-[#ffd700]/70 bg-[#ffd700]/10 hover:bg-[#ffd700] hover:text-black text-[10px] font-bold text-[#ffd700] tracking-wider uppercase transition-all cursor-pointer flex items-center justify-center gap-1 shadow-sm"
+                    title="Publicar este item diretamente na loja para outros comprarem/customizarem, mesmo sem colocá-lo na cena"
+                  >
+                    <ShoppingBag className="w-3 h-3 flex-shrink-0" />
+                    <span className="truncate">Publicar</span>
+                  </button>
+                </div>
               </div>
             ))}
           </div>

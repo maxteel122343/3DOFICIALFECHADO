@@ -6,6 +6,7 @@ import { UploadGLBModal } from './components/UploadGLBModal';
 import { BoundaryModal } from './components/BoundaryModal';
 import { AuthModal } from './components/AuthModal';
 import { PublishModal } from './components/PublishModal';
+import { PublishItemModal } from './components/PublishItemModal';
 import { LobbyView } from './components/LobbyView';
 import { RoomView } from './components/RoomView';
 import { UserCustomizationView } from './components/UserCustomizationView';
@@ -29,8 +30,11 @@ import {
   CustomizationItem,
   StoreAvatar,
   AvatarPoseConfig,
+  StoreObjectType,
 } from './types';
 import { supabase } from './lib/supabase';
+import { persistStoreItem, persistShowcaseRoom } from './lib/database';
+import { getGlbFile } from './lib/storageIndexedDB';
 import { Lightbulb, Sparkles, Maximize2, Minimize2 } from 'lucide-react';
 
 export const App: React.FC = () => {
@@ -64,6 +68,15 @@ export const App: React.FC = () => {
     }
     return INITIAL_STORE_AVATARS;
   });
+
+  const [activeAvatarId, setActiveAvatarId] = useState<string>(() => {
+    const saved = localStorage.getItem('3d_social_creator_active_avatar_id');
+    if (saved) return saved;
+    return 'av-1';
+  });
+
+  const activeUserAvatar =
+    storeAvatars.find((a) => a.id === activeAvatarId || a.applied) || storeAvatars[0];
 
   const [avatarPoses, setAvatarPoses] = useState<AvatarPoseConfig[]>(INITIAL_CUSTOMIZATION_POSES);
 
@@ -119,8 +132,8 @@ export const App: React.FC = () => {
   });
 
   // Required Top Controls:
-  // 1. Toggle MODO AVATAR: ligado = clicar nos spots como visitante (teleporta). desligado = edição.
-  const [isAvatarMode, setIsAvatarMode] = useState<boolean>(true);
+  // 1. Toggle MODO AVATAR: ligado = clicar nos spots como visitante (teleporta). desligado = edição completa com Gizmo.
+  const [isAvatarMode, setIsAvatarMode] = useState<boolean>(false);
 
   // 2. Ícone OLHO: liga/desliga o ghost do LIMITE jogável. Padrão OFF.
   const [showBoundaryGhost, setShowBoundaryGhost] = useState<boolean>(false);
@@ -142,7 +155,53 @@ export const App: React.FC = () => {
   const [isBoundaryModalOpen, setIsBoundaryModalOpen] = useState(false);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [isPublishModalOpen, setIsPublishModalOpen] = useState(false);
+  const [isPublishItemModalOpen, setIsPublishItemModalOpen] = useState(false);
+  const [publishingItem, setPublishingItem] = useState<InventoryItem | null>(null);
   const [statusToast, setStatusToast] = useState<string | null>(null);
+
+  // Restore GLB Blob URLs from IndexedDB on page load/refresh (ensuring full persistence)
+  useEffect(() => {
+    const restoreBlobs = async () => {
+      let hasUpdated = false;
+      const updatedInventory = await Promise.all(
+        inventory.map(async (item) => {
+          if (!item.fileBlobUrl || item.fileBlobUrl.startsWith('blob:')) {
+            const blob = await getGlbFile(item.id);
+            if (blob) {
+              hasUpdated = true;
+              return { ...item, fileBlobUrl: URL.createObjectURL(blob) };
+            }
+          }
+          return item;
+        })
+      );
+
+      if (hasUpdated) {
+        setInventory(updatedInventory);
+        setRooms((prev) =>
+          prev.map((room) => {
+            const matchingScenario = updatedInventory.find(
+              (i) => i.id === room.sceneAssetId
+            );
+            if (matchingScenario && matchingScenario.fileBlobUrl) {
+              return {
+                ...room,
+                sceneAssetBlobUrl: matchingScenario.fileBlobUrl,
+                placedObjects: room.placedObjects.map((obj) =>
+                  obj.assetId === matchingScenario.id
+                    ? { ...obj, fileBlobUrl: matchingScenario.fileBlobUrl }
+                    : obj
+                ),
+              };
+            }
+            return room;
+          })
+        );
+      }
+    };
+
+    restoreBlobs();
+  }, []);
 
   // Active room helper
   const activeRoom = rooms.find((r) => r.id === activeRoomId) || rooms[0];
@@ -151,6 +210,41 @@ export const App: React.FC = () => {
   useEffect(() => {
     localStorage.setItem('3d_social_creator_rooms', JSON.stringify(rooms));
   }, [rooms]);
+
+  // Auto-sync: If a room has sceneAssetBlobUrl but no corresponding 'cenario' in placedObjects,
+  // register it as an editable placedObject so that the user can select and adjust it with the Gizmo!
+  useEffect(() => {
+    setRooms((prev) =>
+      prev.map((r) => {
+        if (
+          r.sceneAssetBlobUrl &&
+          !r.placedObjects.some(
+            (o) => o.type === 'cenario' || (o.fileBlobUrl && o.fileBlobUrl === r.sceneAssetBlobUrl)
+          )
+        ) {
+          const cenarioObj: PlacedObject = {
+            id: `obj-cenario-${r.id}`,
+            assetId: r.sceneAssetId || 'cenario',
+            name:
+              inventory.find(
+                (i) => i.fileBlobUrl === r.sceneAssetBlobUrl || i.id === r.sceneAssetId
+              )?.displayName || 'Cenário 3D da Sala',
+            type: 'cenario',
+            position: [0, 0, 0],
+            rotation: [0, 0, 0],
+            scale: [1, 1, 1],
+            modelType: 'custom_glb',
+            fileBlobUrl: r.sceneAssetBlobUrl,
+          };
+          return {
+            ...r,
+            placedObjects: [cenarioObj, ...r.placedObjects],
+          };
+        }
+        return r;
+      })
+    );
+  }, [inventory]);
 
   useEffect(() => {
     localStorage.setItem('3d_social_creator_inventory', JSON.stringify(inventory));
@@ -238,7 +332,20 @@ export const App: React.FC = () => {
     );
   };
 
+  const handleSelectActiveAvatar = (avatarId: string) => {
+    setActiveAvatarId(avatarId);
+    localStorage.setItem('3d_social_creator_active_avatar_id', avatarId);
+    setStoreAvatars((prev) =>
+      prev.map((a) => ({
+        ...a,
+        applied: a.id === avatarId,
+      }))
+    );
+  };
+
   const handleAcquireStoreAvatar = (avatarId: string) => {
+    setActiveAvatarId(avatarId);
+    localStorage.setItem('3d_social_creator_active_avatar_id', avatarId);
     setStoreAvatars((prev) =>
       prev.map((a) => {
         if (a.id === avatarId) {
@@ -280,24 +387,127 @@ export const App: React.FC = () => {
   };
 
   const handlePublishInventoryItemToStore = (invItem: InventoryItem) => {
-    const publishedItem: CustomizationItem = {
-      id: `pub-${invItem.id}`,
-      code: `#P00${customizationItems.length + 1}`,
-      name: invItem.displayName,
-      category: invItem.type === 'Avatar' ? 'outros' : 'chapeus',
-      thumb: invItem.thumbUrl,
-      owned: true,
-      equipped: false,
-      price: 0, // Free for community to grab
-      rarity: 'RARO',
-      isPublishedByCreator: true,
-      author: user?.displayName || 'Luzenne',
-      fileBlobUrl: invItem.fileBlobUrl,
-      description: `Item 3D criado por ${user?.displayName || 'Luzenne'}.`,
-    };
+    setPublishingItem(invItem);
+    setIsPublishItemModalOpen(true);
+  };
 
-    setCustomizationItems((prev) => [publishedItem, ...prev]);
-    showToast(`"${invItem.displayName}" foi publicado na Loja e pode ser pego por outros usuários!`);
+  const handleConfirmPublishItem = async (payload: {
+    item: InventoryItem;
+    name: string;
+    objectType: StoreObjectType;
+    price: number;
+    hashtags: string[];
+    thumbnailUrl: string;
+    rarity: 'COMUM' | 'RARO' | 'ÉLITE';
+    description: string;
+    publishMode: 'simples' | 'avancado';
+  }) => {
+    // 1. Persist to Supabase and guarantee localStorage persistence
+    await persistStoreItem(
+      {
+        name: payload.name,
+        objectType: payload.objectType,
+        price: payload.price,
+        hashtags: payload.hashtags,
+        thumbnailUrl: payload.thumbnailUrl,
+        rarity: payload.rarity,
+        description: payload.description,
+        publishMode: payload.publishMode,
+        fileBlobUrl: payload.item.fileBlobUrl,
+        author: user?.displayName || 'Luzenne',
+      },
+      user
+    );
+
+    // 2. React state integration for avatars or store customization items
+    if (payload.objectType === 'avatar') {
+      const newAvatar: StoreAvatar = {
+        id: `av-pub-${payload.item.id}-${Date.now()}`,
+        name: payload.name,
+        price: payload.price,
+        rarity: payload.rarity,
+        tags: payload.hashtags,
+        thumb: payload.thumbnailUrl || payload.item.thumbUrl,
+        author: user?.displayName || 'Luzenne',
+        isUserPublished: true,
+        owned: true,
+        applied: false,
+        fileBlobUrl: payload.item.fileBlobUrl,
+        description: payload.description,
+      };
+      setStoreAvatars((prev) => [newAvatar, ...prev.filter((a) => a.name !== payload.name)]);
+    } else if (payload.objectType === 'sala') {
+      const roomMatch = rooms.find(
+        (r) => r.sceneAssetId === payload.item.id || r.sceneAssetBlobUrl === payload.item.fileBlobUrl
+      );
+      if (roomMatch) {
+        await persistShowcaseRoom(
+          { ...roomMatch, name: payload.name },
+          user,
+          { price: payload.price, hashtags: payload.hashtags, publishMode: payload.publishMode }
+        );
+      }
+    } else {
+      const newCustomItem: CustomizationItem = {
+        id: `item-pub-${payload.item.id}-${Date.now()}`,
+        code: `#P${Math.floor(100 + Math.random() * 900)}`,
+        name: payload.name,
+        category: payload.objectType === 'moveis' ? 'outros' : 'publicados',
+        thumb: payload.thumbnailUrl || payload.item.thumbUrl,
+        owned: true,
+        equipped: false,
+        price: payload.price,
+        rarity: payload.rarity,
+        isPublishedByCreator: true,
+        author: user?.displayName || 'Luzenne',
+        fileBlobUrl: payload.item.fileBlobUrl,
+        description: payload.description,
+      };
+      setCustomizationItems((prev) => [newCustomItem, ...prev.filter((i) => i.id !== newCustomItem.id)]);
+    }
+
+    // 3. Update inventory item display name
+    setInventory((prev) =>
+      prev.map((i) =>
+        i.id === payload.item.id
+          ? { ...i, displayName: payload.name, thumbUrl: payload.thumbnailUrl || i.thumbUrl }
+          : i
+      )
+    );
+
+    showToast(`"${payload.name}" publicado na Loja e Vitrine com sucesso!`);
+  };
+
+  const handleRenameInventoryItem = (id: string, newName: string) => {
+    const trimmed = newName.trim();
+    if (!trimmed) return;
+    setInventory((prev) =>
+      prev.map((item) => (item.id === id ? { ...item, displayName: trimmed } : item))
+    );
+    setRooms((prev) =>
+      prev.map((room) => ({
+        ...room,
+        name: room.sceneAssetId === id ? trimmed : room.name,
+        placedObjects: room.placedObjects.map((obj) =>
+          obj.assetId === id ? { ...obj, name: trimmed } : obj
+        ),
+      }))
+    );
+    showToast(`Nome alterado para "${trimmed}"`);
+  };
+
+  const handleRenamePlacedObject = (id: string, newName: string) => {
+    const trimmed = newName.trim();
+    if (!trimmed) return;
+    setRooms((prev) =>
+      prev.map((room) => ({
+        ...room,
+        placedObjects: room.placedObjects.map((obj) =>
+          obj.id === id ? { ...obj, name: trimmed } : obj
+        ),
+      }))
+    );
+    showToast(`Objeto renomeado para "${trimmed}"`);
   };
 
   // Add new Room tab
@@ -333,39 +543,54 @@ export const App: React.FC = () => {
     showToast(`Nova Room ${nextLetter} criada com sucesso!`);
   };
 
-  // Upload handler (supports real GLB blob URLs and direct placement)
+  // Upload handler (supports real GLB blob URLs and direct placement with Gizmo)
   const handleUploadSuccess = (
     item: InventoryItem,
     autoInsertPoint?: [number, number, number] | null
   ) => {
     setInventory((prev) => [item, ...prev]);
 
-    // If user explicitly chose to apply as room scenario right away:
+    // 1. If user uploads a 'Sala' (architectural 3D scenario)
     if (item.type === 'Sala') {
-      if (autoInsertPoint) {
-        setRooms((prev) =>
-          prev.map((r) =>
-            r.id === activeRoomId
-              ? {
-                  ...r,
-                  sceneAssetId: item.id,
-                  sceneAssetBlobUrl: item.fileBlobUrl,
-                }
-              : r
-          )
-        );
-        showToast(`Cenário 3D "${item.displayName}" aplicado na room!`);
-      } else {
-        showToast(`Cenário "${item.displayName}" salvo no inventário! Clique em "Usar Cenário" quando desejar aplicar.`);
-      }
+      const targetPoint = autoInsertPoint || (insertionCursorPoint ? [insertionCursorPoint[0], 0.0, insertionCursorPoint[2]] : [0, 0, 0]);
+      const newObjId = `obj-cenario-${Date.now()}`;
+      const newPlacedObject: PlacedObject = {
+        id: newObjId,
+        assetId: item.id,
+        name: item.displayName,
+        type: 'cenario',
+        position: [targetPoint[0], 0.0, targetPoint[2]] as [number, number, number],
+        rotation: [0, 0, 0] as [number, number, number],
+        scale: [1, 1, 1] as [number, number, number],
+        modelType: 'custom_glb',
+        fileBlobUrl: item.fileBlobUrl,
+      };
+
+      setRooms((prev) =>
+        prev.map((r) => {
+          if (r.id !== activeRoomId) return r;
+          const cleanPlaced = r.placedObjects.filter((o) => o.type !== 'cenario');
+          return {
+            ...r,
+            sceneAssetId: item.id,
+            sceneAssetBlobUrl: item.fileBlobUrl,
+            placedObjects: [newPlacedObject, ...cleanPlaced],
+          };
+        })
+      );
+      setSelectedObjectId(newObjId);
+      setSelectedSpotId(null);
+      setInsertionCursorPoint(null);
+      setIsAvatarMode(false); // Mode edit on so gizmo is visible
+      showToast(`Cenário 3D "${item.displayName}" inserido! Ajuste com o Gizmo (Mover, Rodar, Escalar, Elevar).`);
       return;
     }
 
-    // If user explicitly chose to insert into scene right away:
+    // 2. If user uploads an 'Avatar' or 'Item'
     if (autoInsertPoint && (item.type === 'Item' || item.type === 'Avatar')) {
       const targetPoint = autoInsertPoint;
-      const newObjId = `obj-${Date.now()}`;
       const isAvatarType = item.type === 'Avatar';
+      const newObjId = `obj-${isAvatarType ? 'avatar' : 'item'}-${Date.now()}`;
       const newPlacedObject: PlacedObject = {
         id: newObjId,
         assetId: item.id,
@@ -389,48 +614,69 @@ export const App: React.FC = () => {
       setSelectedObjectId(newObjId);
       setSelectedSpotId(null);
       setInsertionCursorPoint(null);
+      setIsAvatarMode(false); // Mode edit on so gizmo is visible
       if (isAvatarType) {
         setCustomAvatarObjectId(newObjId);
       }
-      showToast(`"${item.displayName}" inserido na cena 3D!`);
+      showToast(`"${item.displayName}" inserido na cena 3D! Ajuste com o Gizmo.`);
     } else {
       showToast(`"${item.displayName}" salvo no inventário! Clique em "Inserir na Cena" quando desejar colocá-lo.`);
     }
   };
 
-  // Insert GLB or asset into the scene
+  // Insert GLB or asset into the scene (supporting Sala, Avatar, and Item with Gizmo)
   const handleInsertAssetToScene = (asset: InventoryItem) => {
-    // If it's a scene file, load as room scenario
-    if (asset.type === 'Sala') {
-      setRooms((prev) =>
-        prev.map((r) =>
-          r.id === activeRoomId
-            ? {
-                ...r,
-                sceneAssetId: asset.id,
-                sceneAssetBlobUrl: asset.fileBlobUrl,
-              }
-            : r
-        )
-      );
-      showToast(`Cenário 3D "${asset.displayName}" carregado na room!`);
-      return;
-    }
-
     const spawnPoint: [number, number, number] = insertionCursorPoint
       ? [insertionCursorPoint[0], 0.0, insertionCursorPoint[2]]
       : [0, 0.0, 0];
 
-    const newObjId = `obj-${Date.now()}`;
-    const newPlacedObject = {
+    // If it's a scene file (Sala), load as scenario and enable full Gizmo
+    if (asset.type === 'Sala') {
+      const newObjId = `obj-cenario-${Date.now()}`;
+      const newPlacedObject: PlacedObject = {
+        id: newObjId,
+        assetId: asset.id,
+        name: asset.displayName,
+        type: 'cenario',
+        position: spawnPoint,
+        rotation: [0, 0, 0] as [number, number, number],
+        scale: [1, 1, 1] as [number, number, number],
+        modelType: 'custom_glb',
+        fileBlobUrl: asset.fileBlobUrl,
+      };
+
+      setRooms((prev) =>
+        prev.map((r) => {
+          if (r.id !== activeRoomId) return r;
+          const cleanPlaced = r.placedObjects.filter((o) => o.type !== 'cenario');
+          return {
+            ...r,
+            sceneAssetId: asset.id,
+            sceneAssetBlobUrl: asset.fileBlobUrl,
+            placedObjects: [newPlacedObject, ...cleanPlaced],
+          };
+        })
+      );
+      setSelectedObjectId(newObjId);
+      setSelectedSpotId(null);
+      setInsertionCursorPoint(null);
+      setIsAvatarMode(false);
+      showToast(`Cenário 3D "${asset.displayName}" inserido na room! Ajuste com o Gizmo.`);
+      return;
+    }
+
+    const isAvatarType = asset.type === 'Avatar';
+    const newObjId = `obj-${isAvatarType ? 'avatar' : 'item'}-${Date.now()}`;
+    const newPlacedObject: PlacedObject = {
       id: newObjId,
       assetId: asset.id,
       name: asset.displayName,
-      type: 'movel' as const,
+      type: isAvatarType ? 'avatar' : 'movel',
+      isAvatar: isAvatarType,
       position: spawnPoint,
       rotation: [0, 0, 0] as [number, number, number],
       scale: [1, 1, 1] as [number, number, number],
-      modelType: (asset.modelType || 'custom_glb') as any,
+      modelType: (asset.modelType || (isAvatarType ? 'avatar' : 'custom_glb')) as any,
       fileBlobUrl: asset.fileBlobUrl,
     };
 
@@ -445,6 +691,10 @@ export const App: React.FC = () => {
     setSelectedObjectId(newObjId);
     setSelectedSpotId(null);
     setInsertionCursorPoint(null);
+    setIsAvatarMode(false);
+    if (isAvatarType) {
+      setCustomAvatarObjectId(newObjId);
+    }
     showToast(`"${asset.displayName}" inserido na cena! Ajuste com o Gizmo.`);
   };
 
@@ -793,10 +1043,17 @@ export const App: React.FC = () => {
   // Go to showcase after publishing
   const handleGoToVitrine = () => {
     setIsPublishModalOpen(false);
+    setRooms((prev) =>
+      prev.map((r) =>
+        r.id === activeRoomId ? { ...r, isPublished: true, publishedAt: 'Agora' } : r
+      )
+    );
     const targetRoomId = `editor-${activeRoom.id}`;
     const foundIndex = lobbyRooms.findIndex((r) => r.id === targetRoomId);
     if (foundIndex >= 0) {
       setLobbyRoomIndex(foundIndex);
+    } else {
+      setLobbyRoomIndex(lobbyRooms.length);
     }
     setCurrentScreen('lobby');
     showToast(`Exibindo "${activeRoom.name}" na Vitrine de Rooms!`);
@@ -850,6 +1107,7 @@ export const App: React.FC = () => {
           onAcquireStoreAvatar={handleAcquireStoreAvatar}
           onAcquireCustomItem={handleAcquireCustomItem}
           onPublishCustomItem={handlePublishCustomItem}
+          onSelectActiveAvatar={handleSelectActiveAvatar}
         />
       )}
 
@@ -857,6 +1115,8 @@ export const App: React.FC = () => {
       {currentScreen === 'room' && selectedLobbyRoom && (
         <RoomView
           room={selectedLobbyRoom}
+          activeUserAvatar={activeUserAvatar}
+          user={user}
           onExitToLobby={() => {
             if (selectedLobbyRoom.isPlaytest) {
               setCurrentScreen('editor');
@@ -936,6 +1196,29 @@ export const App: React.FC = () => {
             customAvatarObjectId={customAvatarObjectId}
             onSetCustomAvatarObjectId={setCustomAvatarObjectId}
             onUpdateObjectType={handleUpdateObjectType}
+            sceneAssetBlobUrl={activeRoom.sceneAssetBlobUrl}
+            sceneAssetName={
+              activeRoom.sceneAssetBlobUrl
+                ? inventory.find(
+                    (i) =>
+                      i.fileBlobUrl === activeRoom.sceneAssetBlobUrl ||
+                      i.id === activeRoom.sceneAssetId
+                  )?.displayName || 'Cenário 3D da Sala'
+                : undefined
+            }
+            onRemoveScenario={() => {
+              setRooms((prev) =>
+                prev.map((r) =>
+                  r.id === activeRoomId
+                    ? { ...r, sceneAssetBlobUrl: undefined, sceneAssetId: null }
+                    : r
+                )
+              );
+              showToast('Cenário 3D removido da sala.');
+            }}
+            onPublishInventoryItem={handlePublishInventoryItemToStore}
+            onRenameInventoryItem={handleRenameInventoryItem}
+            onRenamePlacedObject={handleRenamePlacedObject}
           />
 
           {/* 3D Scene Viewport */}
@@ -1067,6 +1350,19 @@ export const App: React.FC = () => {
     user={user}
     onGoToVitrine={handleGoToVitrine}
     onPlaytest={handlePlaytestActiveRoom}
+  />
+
+  <PublishItemModal
+    isOpen={isPublishItemModalOpen}
+    onClose={() => setIsPublishItemModalOpen(false)}
+    item={publishingItem}
+    user={user}
+    onConfirmPublish={handleConfirmPublishItem}
+    onGoToStore={() => {
+      setIsPublishItemModalOpen(false);
+      setCustomizationInitialTab('loja');
+      setCurrentScreen('customization');
+    }}
   />
 </>
 );
